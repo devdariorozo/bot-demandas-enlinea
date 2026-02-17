@@ -5,8 +5,11 @@
 
 ## 📋 Descripción General
 
-Este proyecto es un bot desarrollado en **Node.js** que automatiza la radicación de demandas en línea en el portal oficial de la Rama Judicial de Colombia (`https://procesojudicial.ramajudicial.gov.co/demandaenlinea`).  
-El bot simula el flujo que hoy realiza un usuario humano: acepta los términos y condiciones del modal inicial, diligencia los campos de los 6 bloques del formulario (selects, textos, sujetos procesales, adjuntos), interactúa con el **reCAPTCHA** y finalmente envía la demanda, minimizando errores manuales y tiempos operativos.
+Este proyecto es un bot desarrollado en **Node.js** que automatiza la radicación de demandas en línea en el portal oficial de la Rama Judicial de Colombia (`https://procesojudicial.ramajudicial.gov.co/demandaenlinea`). El bot simula el flujo que hoy realiza un usuario humano: acepta los términos y condiciones del modal inicial, diligencia los campos de los 6 bloques del formulario (selects, textos, sujetos procesales, adjuntos), interactúa con el **reCAPTCHA** (resolución vía Browserless) y finalmente envía la demanda, minimizando errores manuales y tiempos operativos.
+
+La ejecución se realiza únicamente en **horarios y días laborales configurados**: inicialmente **lunes a viernes de 08:00 a 12:00 y de 13:00 a 17:00**, excluyendo **fines de semana y festivos en Colombia**. Un módulo de configuración de horarios y días laborales centraliza esta lógica y permitirá ajustes desde un frontend en versiones posteriores.
+
+El sistema está pensado para ser **escalable por carteras**. En el **MVP** se trabaja con un primer tipo de cartera: **Carteras Propias**. Posteriormente se incorporarán otras carteras (por ejemplo **Carteras Sudameris**) con sus propias estrategias de radicación y fuentes de datos, sin modificar el núcleo del sistema gracias a la arquitectura hexagonal y al uso de estrategias por cartera.
 
 
 ## 🤝 Contribución
@@ -47,13 +50,15 @@ Puedes abrir el repositorio aquí: [https://dev.azure.com/MontecheloPipelines/ur
 
 ## 🏗️ Arquitectura del Sistema
 
-```text
-Arquitectura basada en **Hexagonal / Clean Architecture**
+El sistema se basa en **arquitectura Hexagonal (Ports & Adapters)**, alineada con los principios de **Clean Architecture**. El dominio y los casos de uso permanecen independientes de la tecnología de scraping (Puppeteer/Browserless), las bases de datos y los proveedores externos, lo que permite evolucionar el sistema y cambiar adaptadores sin impactar las reglas de negocio.
 
+**Stack central:** **NestJS** (API y orquestación), **Puppeteer** (automatización), **Swagger** (documentación de la API) y **Browserless** (navegador en la nube, proxies y resolución de captchas).
+
+```text
                    +-------------------------------+
-                   |      Interfaces de Entrada    |
+                   |      Interfaces de Entrada   |
                    |-------------------------------|
-                   |  - API REST (NestJS/Express)  |
+                   |  - API REST (NestJS + Swagger)|
                    |  - Jobs / Schedulers (cron)   |
                    |  - CLI / Scripts de soporte   |
                    +-----------------------+-------+
@@ -65,7 +70,7 @@ Arquitectura basada en **Hexagonal / Clean Architecture**
                    |-------------------------------|
                    |  - OrquestadorDemandaService  |
                    |  - Servicios por Cartera      |
-                   |  - Manejo de transacciones    |
+                   |  - Configuración horarios    |
                    +-----------------------+-------+
                                            |
                                (Puertos de Dominio)
@@ -81,36 +86,40 @@ Arquitectura basada en **Hexagonal / Clean Architecture**
                    |  - CaptchaSolverPort          |
                    |  - CarteraRepositoryPort      |
                    |  - DemandaJobRepositoryPort   |
+                   |  - HorarioLaboralPort         |
                    +-----------------------+-------+
                                            |
                                (Adaptadores externos)
                                            |
    +------------------------+--------------v---------------------------+
-   |                    Capa de Infraestructura                        |
-   |------------------------------------------------------------------|
-   | - PuppeteerBrowserAdapter (automatiza demandaenlinea)            |
-   | - Nstbrowser/BrowserlessAdapter (opcional anti-detección)        |
-   | - Adaptadores de reCAPTCHA (2Captcha, Anti-Captcha, CapSolver)   |
-   | - Repositorios MySQL multi-BD (una BD por cartera + BD config)   |
-   | - Redis + BullMQ (cola de trabajos del bot)                      |
-   | - Logging, métricas, configuración, notificaciones (email, etc.) |
-   +------------------------------------------------------------------+
+   |                    Capa de Infraestructura                         |
+   |-------------------------------------------------------------------|
+   | - BrowserlessPuppeteerAdapter (Puppeteer + Browserless Cloud)      |
+   | - Repositorios MySQL (BD configuración + BD por cartera)          |
+   | - Redis + BullMQ (cola de trabajos del bot)                       |
+   | - Adaptador horarios / calendario (días laborales, festivos CO)   |
+   | - Logging, métricas, notificaciones                               |
+   +-------------------------------------------------------------------+
 ```
 
 ## 📦 Stack Tecnológico
 
+**Núcleo del proyecto:** **NestJS** · **Puppeteer** · **Swagger** · **Browserless**
+
 ### Backend
 
-| Tecnología         | Versión / Librería          | Descripción                                                        |
-| ------------------ | --------------------------- | ------------------------------------------------------------------ |
-| **Node.js**        | 22.13.1+ (LTS recomendada)  | Runtime principal (TypeScript)                                    |
-| **TypeScript**     | 5.x                         | Tipado estático y mejor mantenibilidad                            |
-| **NestJS / Express** | Última LTS                | Framework HTTP para exponer API REST y casos de uso               |
-| **Puppeteer**      | Última estable              | Automatización de navegador (Chrome)                              |
-| **puppeteer-extra** + **stealth-plugin** | Última | Disminuir fingerprint de bot y mitigación básica anti-bot        |
-| **BullMQ**         | Última estable              | Manejo de colas de trabajos sobre Redis                           |
-| **dotenv** / config| Última estable              | Gestión de variables de entorno y configuración por ambiente      |
-| **Jest** / **Vitest** | Última                   | Pruebas unitarias e integración                                   |
+| Tecnología              | Versión / Librería         | Descripción                                                                     |
+| ----------------------- | -------------------------- | ------------------------------------------------------------------------------- |
+| **Node.js**             | 22.13.1+ (LTS recomendada) | Runtime principal (TypeScript).                                                 |
+| **TypeScript**          | 5.x                        | Tipado estático y mejor mantenibilidad.                                         |
+| **NestJS**              | Última LTS                 | Framework para API REST, módulos, inyección de dependencias y organización por capas. |
+| **Puppeteer**           | Última estable             | Automatización de navegador; conexión vía `puppeteer.connect` a Browserless.   |
+| **Browserless Cloud**   | Servicio externo           | Navegadores en la nube, proxies y resolución de captchas (`solveCaptchas`).    |
+| **Swagger / OpenAPI**   | Última                     | Documentación interactiva de la API REST (integrado con NestJS).               |
+| **puppeteer-extra** + **stealth-plugin** | Última | Refuerzo anti-detección en el cliente de automatización.                      |
+| **BullMQ**              | Última estable             | Colas de trabajos sobre Redis (opcional según volumen).                        |
+| **dotenv** / config     | Última estable             | Variables de entorno y configuración por ambiente.                             |
+| **Jest** / **Vitest**   | Última                     | Pruebas unitarias e integración.                                                |
 
 ### Base de Datos
 
@@ -123,12 +132,13 @@ Arquitectura basada en **Hexagonal / Clean Architecture**
 
 ### DevOps / Infra
 
-| Tecnología           | Versión    | Descripción                                 |
-| -------------------- | ---------- | ------------------------------------------- |
-| **Docker**           | 20.10+     | Contenedorización de servicios              |
-| **Docker Compose**   | 1.29+      | Orquestación local (API, Redis, MySQL)      |
-| **Swagger UI / OpenAPI** | Latest | Documentación interactiva de la API REST    |
-| **Azure DevOps / GitHub Actions** | N/A | Pipelines CI/CD (build, tests, despliegue) |
+| Tecnología                     | Versión | Descripción                                           |
+| ------------------------------ | ------- | ----------------------------------------------------- |
+| **Docker**                     | 20.10+  | Contenedorización de servicios.                       |
+| **Docker Compose**             | 1.29+   | Orquestación local (API, Redis, MySQL).              |
+| **Swagger UI / OpenAPI**      | Latest  | Documentación interactiva de la API REST.            |
+| **Azure DevOps / GitHub Actions** | N/A  | Pipelines CI/CD (build, tests, despliegue).          |
+| **Browserless Cloud**         | N/A     | Servicio gestionado de navegador + proxies + captcha. |
 
 ## 📁 Estructura del Proyecto
 
@@ -136,48 +146,71 @@ Arquitectura basada en **Hexagonal / Clean Architecture**
 bot-demandas-enlinea/
 ├── v1/
 │   ├── src/
-│   │   ├── domain/              # Entidades, VOs, puertos (interfaces)
-│   │   ├── application/         # Casos de uso, servicios de orquestación
-│   │   ├── infrastructure/      # Adaptadores (Puppeteer, MySQL, Redis, reCAPTCHA, etc.)
-│   │   └── interfaces/          # API REST, CLI, schedulers
-│   ├── test/                    # Pruebas unitarias e integración
-│   ├── docker/                  # Archivos relacionados a imágenes y compose
+│   │   ├── domain/                    # Núcleo de negocio (entidades, VOs, puertos)
+│   │   │   ├── entities/              # Demanda, Cartera, SujetoProcesal, Campaña, etc.
+│   │   │   ├── value-objects/         # Nit, Correo, HorarioLaboral, CodigoCiudad, etc.
+│   │   │   └── ports/                 # BrowserAutomationPort, DemandaRepositoryPort, HorarioLaboralPort, etc.
+│   │   ├── application/               # Casos de uso y lógica de orquestación
+│   │   │   ├── use-cases/             # OrquestarRadicacionDemanda, ConsultarPendientes, ActualizarEstado, etc.
+│   │   │   └── strategies/            # Estrategias por cartera/campaña (CarterasPropias, Sudameris, ...)
+│   │   ├── infrastructure/            # Adaptadores concretos (límite exterior del hexágono)
+│   │   │   ├── browser/               # BrowserlessPuppeteerAdapter (Puppeteer + Browserless)
+│   │   │   ├── persistence/           # Repositorios MySQL (configuración + BD por cartera)
+│   │   │   ├── scheduling/            # Adaptador de horarios / calendario (días laborales, festivos CO)
+│   │   │   └── queues/                # Procesadores BullMQ (colas de radicación)
+│   │   └── interfaces/                # API REST y demás interfaces de entrada
+│   │       ├── http/                  # Controladores NestJS (demandas, carteras, config/horarios)
+│   │       └── modules/               # Módulos NestJS (DemandaModule, CarteraModule, ConfigModule, ...)
+│   ├── test/                          # Pruebas unitarias e integración
+│   ├── docker/                        # Archivos relacionados a Docker y docker-compose
 │   ├── package.json
 │   ├── tsconfig.json
-│   └── README.md
-└── README.md (documentación general del repositorio)
+│   └── README.md                      # Documentación específica de la versión v1
+└── README.md                          # Documentación general del repositorio
 ```
 
 ## 🧩 Componentes Principales
 
-- **Orquestador de Demandas**: coordina todo el flujo de creación y envío de la demanda por cartera/campaña.
-- **Módulo de Cartera/Estrategias**: encapsula la lógica específica por cartera (propia, Sudameris, etc.) y campaña.
-- **Adaptador Puppeteer**: automatiza el portal `demandaenlinea` (modal de términos, selects, campos, adjuntos, envío).
-- **Módulo reCAPTCHA**: encapsula la integración con la solución elegida (gratuita o de pago) mediante `CaptchaSolverPort`.
-- **Módulo de Integración BD**: lee la información de las distintas bases de datos de cartera y la BD de configuración.
+- **Orquestador de Demandas**: coordina el flujo completo de radicación por cartera y campaña, respetando horarios laborales configurados.
+- **Módulo de Cartera / Estrategias**: encapsula la lógica por tipo de cartera (MVP: **Carteras Propias**; futuro: **Carteras Sudameris**, etc.), permitiendo distintas reglas de mapeo y validación por cartera y campaña. Diseñado para escalar a múltiples carteras sin cambiar el núcleo del sistema.
+- **Módulo de configuración de horarios y días laborales**: define las ventanas horarias en las que el bot puede ejecutarse (p. ej. 08:00–12:00 y 13:00–17:00), los días laborables (lunes a viernes por defecto) y excluye **fines de semana y festivos en Colombia**. Permite consultar si “ahora” es momento de ejecutar (puerto `HorarioLaboralPort`) y será configurable desde frontend en versiones posteriores.
+- **Adaptador Puppeteer/Browserless**: automatiza el portal `demandaenlinea` conectando Puppeteer a Browserless (modal de términos, formulario, adjuntos, captcha y envío).
+- **Módulo reCAPTCHA**: delegado a Browserless (`solveCaptchas`); se mantiene el puerto `CaptchaSolverPort` por si se requiere una estrategia alternativa en el futuro.
+- **Módulo de Integración BD**: lee datos de las bases de datos de cartera y de la BD de configuración (ciudades, carteras, campañas).
 - **Cola de Trabajos (BullMQ + Redis)**: encola, reintenta y monitorea los procesos de radicación.
-- **API REST**: expone endpoints para disparar procesos, consultar estados y administrar configuraciones básicas.
+- **API REST (NestJS + Swagger)**: expone endpoints para disparar procesos, consultar estados y administrar configuraciones; documentación interactiva vía Swagger.
+
+## 🧱 Patrones de Diseño
+
+- **Hexagonal (Ports & Adapters)**: el dominio solo depende de puertos (`BrowserAutomationPort`, `DemandaRepositoryPort`, `HorarioLaboralPort`, etc.); la infraestructura los implementa mediante adaptadores, permitiendo cambiar Browserless, BD o calendario sin tocar reglas de negocio.
+- **Repository**: acceso a demandas, carteras y configuración mediante interfaces; implementaciones concretas sobre MySQL (una BD de configuración y una BD por cartera cuando aplique).
+- **Strategy**: distintas estrategias de radicación por cartera/campaña (mapeo de especialidad y clase de proceso, validaciones específicas), facilitando agregar Carteras Sudameris u otras sin modificar el orquestador.
+- **Adapter / Facade**: `BrowserlessPuppeteerAdapter` encapsula la conexión a Browserless (endpoint, `solveCaptchas`, timeouts y manejo de errores).
+- **Template Method / Command**: flujo de radicación en pasos reutilizables (abrir portal → información inicial → sujetos procesales → adjuntos → captcha → envío).
+- **Value Objects**: NIT, correo, horario de ejecución, código de ciudad, etc., para garantizar consistencia y validación en el dominio.
 
 ## 🚀 Funcionalidades
 
 ### Funcionalidades Core
 
-- **Automatizar radicación de demandas** en el portal `demandaenlinea`, simulando el flujo humano completo.
-- **Soportar múltiples carteras y campañas**, cada una con su estrategia de radicación y su propia fuente de datos.
-- **Manejo de adjuntos** (mínimo 1 archivo, máximo 75 MB por las restricciones del portal).
-- **Gestión de reintentos** ante fallos temporales (timeout, reCAPTCHA, errores intermitentes del portal).
-- **Registro y trazabilidad** de cada intento de radicación (logs estructurados, auditoría básica).
-- **Ejecución programada** (jobs) y ejecución manual vía API para demandas puntuales o pruebas.
+- **Automatizar radicación de demandas** en el portal `demandaenlinea`, simulando el flujo humano completo (NestJS + Puppeteer + Browserless).
+- **Ejecución solo en horario laboral**: el bot opera dentro de las ventanas horarias y días laborables configurados, excluyendo fines de semana y festivos en Colombia.
+- **Soportar múltiples carteras y campañas**: MVP con **Carteras Propias**; extensible a **Carteras Sudameris** y otras, cada una con su estrategia y fuente de datos.
+- **Manejo de adjuntos** (mínimo 1 archivo, máximo 75 MB según restricciones del portal).
+- **Gestión de reintentos** ante fallos temporales (timeout, reCAPTCHA, errores del portal).
+- **Registro y trazabilidad** de cada intento de radicación (logs estructurados, auditoría).
+- **Ejecución programada** (jobs) y ejecución manual vía API; documentación de la API con **Swagger**.
 
 ## 🔍 Endpoints Principales
 
-Algunos endpoints planeados para la API REST (NestJS/Express):
+Endpoints planeados para la API REST (NestJS), documentados con Swagger:
 
-- `GET /health` – Verificación simple de que el servicio está vivo.
-- `POST /api/v1/demandas` – Crea un nuevo trabajo de radicación de demanda para una cartera/campaña.
-- `GET /api/v1/demandas/{id}` – Consulta el estado de una demanda radicada (pendiente, en proceso, exitosa, error).
+- `GET /health` – Verificación de que el servicio está vivo.
+- `POST /api/v1/demandas` – Crea un trabajo de radicación para una cartera/campaña.
+- `GET /api/v1/demandas/{id}` – Consulta el estado de una demanda (pendiente, en proceso, exitosa, error).
 - `POST /api/v1/demandas/{id}/reintentar` – Reintenta la radicación de una demanda que falló.
-- `GET /api/v1/carteras` – Lista carteras y campañas configuradas (según permisos).
+- `GET /api/v1/carteras` – Lista carteras y campañas configuradas.
+- `GET /api/v1/config/horarios` – Consulta la configuración de horarios y días laborales (y en el futuro, ajustes vía frontend).
 
 Documentación automática de la API:
 
