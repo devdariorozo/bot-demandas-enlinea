@@ -1,0 +1,28 @@
+services:
+  api:
+    build: .
+    image: ${NOMBRE_SERVICIO_DOCKER}:latest
+    container_name: ${NOMBRE_SERVICIO_DOCKER}
+    env_file:
+      - .env
+    environment:
+      # Desde el contenedor, "localhost" es el propio contenedor. Para usar tu MySQL
+      # en WSL/host hay que apuntar al host (extra_hosts define host.docker.internal).
+      DB_CONFIG_HOST: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - '${PORT_API}:${PORT_API}'
+    depends_on:
+      - redis
+
+  redis:
+    image: redis:6-alpine
+    container_name: ${NOMBRE_SERVICIO_REDIS}
+    ports:
+      - '${REDIS_HOST_PORT:-6380}:6379'
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:

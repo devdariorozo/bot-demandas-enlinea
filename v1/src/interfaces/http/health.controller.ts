@@ -9,7 +9,7 @@ export class HealthController {
   check() {
     return {
       status: 'ok',
-      service: 'bot-demandas-enlinea',
+      service: process.env.NOMBRE_SERVICIO_SWAGGER,
       timestamp: new Date().toISOString(),
     };
   }
