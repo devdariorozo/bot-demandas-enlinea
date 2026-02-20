@@ -294,46 +294,136 @@ La aplicación usa la base de datos de configuración **`bot_demandas_online`**,
 
 ## 🚀 Levantamiento y uso (con Docker)
 
-El sistema pendiente construir el levantamiento y uso.
+Esta versión usa **Docker + Docker Compose** con **un servicio por ambiente** (dev, qa, pro) y un Redis por ambiente, todos con `network_mode: host`.  
+Así, dentro de los contenedores, `localhost` sigue apuntando a tu máquina (WSL/Ubuntu) y puedes usar tu MySQL local o el servidor de QA/PRO según definas en el `.env`.
 
 ### Requisitos previos
 
 - **Docker** y **Docker Compose** instalados.
-- Levantar siempre apuntando environment a ambiente **QA**: **VPN activa** antes de levantar el stack.
 - Archivo **`.env`** configurado (copiar desde `.env.example`).
-- Solicitar las credenciales de la BD de QA al equipo de desarrollo.
-- Redis se levanta en ip local 127.0.0.1 junto al puerto 6379.
+- Para ambiente **QA/PRO**: **VPN activa** antes de levantar el stack y credenciales de BD correctas (`DB_CONFIG_*` apuntando al servidor correspondiente).
+- Asegúrate de que MySQL acepte conexiones desde el host donde corren los contenedores.
 
-### Paso a paso
+### Servicios por ambiente
 
-1. **Ubicarse en la raíz de la versión v1** (donde estará `docker-compose.yml`):
+En `v1/docker-compose.yml` se definen los siguientes servicios:
+
+- **APIs**
+  - `bot-demandas-enlinea-v1-dev`  → API ambiente **dev**  (puerto HTTP `5006`)
+  - `bot-demandas-enlinea-v1-qa`   → API ambiente **qa**   (puerto HTTP `5007`)
+  - `bot-demandas-enlinea-v1-pro`  → API ambiente **pro**  (puerto HTTP `5008`)
+
+- **Redis**
+  - `bot-demandas-enlinea-v1-redis-dev` → Redis para **dev** (puerto `6379`)
+  - `bot-demandas-enlinea-v1-redis-qa`  → Redis para **qa**  (puerto `6380`)
+  - `bot-demandas-enlinea-v1-redis-pro` → Redis para **pro** (puerto `6381`)
+
+Cada servicio API comparte el mismo código e imagen Docker, pero se diferencia por:
+
+- `NODE_ENV` (`dev`, `qa`, `pro`)
+- `PORT_API` (5006, 5007, 5008)
+- `REDIS_PORT` (6379, 6380, 6381)
+
+> **Importante:** con `network_mode: host` no se usan directivas `ports:`; los puertos anteriores son los que escucha directamente tu host.
+
+### 1. Posicionarse en el proyecto
+
+```bash
+cd bot-demandas-enlinea/v1
+```
+
+### 2. Configurar variables de entorno
+
+1. Copiar el archivo de ejemplo:
+
    ```bash
-   cd bot-demandas-enlinea/v1
+   cp .env.example .env
    ```
 
-2. **Variables de entorno** Copiar archivo `.env.example` a `.env` y ajustar las variables de entorno apuntando a ambiente QA.
+2. Ajustar al menos:
 
-3. **Crear imágenes** Construir imágenes sin caché:
-   ```bash
-   docker compose build --no-cache
+   ```env
+   # MySQL configuración
+   DB_CONFIG_HOST=localhost          # o IP/host de QA/PRO
+   DB_CONFIG_PORT=3306
+   DB_CONFIG_USER=tu_usuario
+   DB_CONFIG_PASSWORD=tu_password
+   DB_CONFIG_DATABASE=bot_demandas_online
+
+   # Redis (host siempre localhost con network_mode: host)
+   REDIS_HOST=localhost
+   # REDIS_PORT lo sobreescribe docker-compose (6379 / 6380 / 6381)
    ```
 
-4. **Levantar todos los servicios**:
-   - Con logs en consola:
-     ```bash
-     docker compose up
-     ```
-   - En segundo plano (detached):
-     ```bash
-     docker compose up -d
-     ```
+   - Para **dev** suele apuntar a tu MySQL local.
+   - Para **qa/pro** apunta al servidor de QA/PRO (requiere VPN).
 
-5. **Abrir Swagger** en el navegador para controlar el sistema:
-   - **URL:** [http://localhost:5006/docs](http://localhost:5006/docs)
-   - Ahí aparecen todos los endpoints. Para ejecutar uno: **"Try it out"** → rellenar parámetros si pide → **"Execute"** → ver el resultado (código HTTP y body).
+### 3. Construir imágenes
+
+Construir (o reconstruir) las imágenes sin caché:
+
+```bash
+docker compose build --no-cache
+```
+
+Esto construirá la imagen `bot-demandas-enlinea-v1:latest` usada por los tres servicios API.
+
+### 4. Levantar por ambiente
+
+#### Solo ambiente dev
+
+```bash
+docker compose up -d bot-demandas-enlinea-v1-redis-dev bot-demandas-enlinea-v1-dev
+```
+
+- API dev: `http://localhost:5006`
+- Swagger dev: `http://localhost:5006/docs`
+- Redis dev: `localhost:6379`
+
+#### Solo ambiente qa
+
+```bash
+docker compose up -d bot-demandas-enlinea-v1-redis-qa bot-demandas-enlinea-v1-qa
+```
+
+- API qa: `http://localhost:5007`
+- Swagger qa: `http://localhost:5007/docs`
+- Redis qa: `localhost:6380`
+
+> Asegúrate de que el `.env` tenga `DB_CONFIG_*` apuntando al servidor de QA y de tener la **VPN activa**.
+
+#### Solo ambiente pro
+
+```bash
+docker compose up -d bot-demandas-enlinea-v1-redis-pro bot-demandas-enlinea-v1-pro
+```
+
+- API pro: `http://localhost:5008`
+- Swagger pro: `http://localhost:5008/docs`
+- Redis pro: `localhost:6381`
+
+#### Levantar todos los ambientes a la vez
+
+Si necesitas tener dev, qa y pro levantados en paralelo:
+
+```bash
+docker compose up -d
+```
+
+Esto levantará las 3 APIs y los 3 Redis, cada uno en su puerto.
+
+### 5. Uso de Swagger
+
+Para cualquier ambiente:
+
+- Abrir la URL de Swagger correspondiente:
+  - Dev: [http://localhost:5006/docs](http://localhost:5006/docs)
+  - Qa:  [http://localhost:5007/docs](http://localhost:5007/docs)
+  - Pro: [http://localhost:5008/docs](http://localhost:5008/docs)
+- En Swagger, usar **"Try it out"** → completar parámetros → **"Execute"** para invocar los endpoints.
 
 **Notas importantes:**
-- Cuando se levanta el sitema el bot no se inicia automaticamente, se debe iniciar manualmente mediante el endpoint `/start` o `/execute` desde Swagger UI.
+- Cuando se levanta el sistema el bot no se inicia automáticamente; se debe iniciar manualmente mediante el endpoint que se defina para ello (por ejemplo `/start` o `/execute`) desde Swagger UI.
 
 
 ## 📞 Soporte

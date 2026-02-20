@@ -1,28 +1,27 @@
+# Un solo entorno: toda la configuración sale del .env.
+#
+# - Dev: en .env pon NODE_ENV=dev, DB_CONFIG_HOST=localhost (y Redis localhost).
+# - QA/Pro: en .env pon NODE_ENV=qa o pro, DB_CONFIG_HOST=172.7.15.21 (o la IP del servidor).
+#
+# Levantar: docker compose up -d
+# Con network_mode: host, la API y Redis usan la red del host (localhost = tu máquina).
+
 services:
   api:
     build: .
     image: ${NOMBRE_SERVICIO_DOCKER}:latest
-    container_name: ${NOMBRE_SERVICIO_DOCKER}
+    container_name: ${NOMBRE_SERVICIO_DOCKER}-api
+    restart: unless-stopped
+    network_mode: host
     env_file:
       - .env
-    environment:
-      # Desde el contenedor, "localhost" es el propio contenedor. Para usar tu MySQL
-      # en WSL/host hay que apuntar al host (extra_hosts define host.docker.internal).
-      DB_CONFIG_HOST: host.docker.internal
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - '${PORT_API}:${PORT_API}'
-    depends_on:
-      - redis
+    command: npm run start:prod
 
   redis:
-    image: redis:6-alpine
+    image: redis:7-alpine
     container_name: ${NOMBRE_SERVICIO_REDIS}
-    ports:
-      - '${REDIS_HOST_PORT:-6380}:6379'
-    volumes:
-      - redis-data:/data
-
-volumes:
-  redis-data:
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      - TZ=America/Bogota
+    command: redis-server --port ${REDIS_PORT:-6379}
