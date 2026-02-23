@@ -232,7 +232,7 @@ Documentación automática de la API:
 
 ### Base de datos
 
-La aplicación usa la base de datos de configuración **`bot_demandas_online`**, que contiene la tabla **`config_data_bases`** (ambientes dev, qa, pro; columnas: `environment`, `portfolio_type`, `campaign`, `data_bases`, `detail`, `state_type`, `created_at`, `updated_at`, `responsible`). Los seeds crean **un registro por campaign por ambiente**: tipo cartera **propias** con campañas tuya, laika y claro (3 filas por ambiente, 9 en total) con 3 bases de ejemplo cada una; tipo cartera **sudameris** con campaña sura (1 fila por ambiente, 3 en total) con 3 bases de ejemplo. **state_type** 0 = inactivo, 1 = activo; **responsible** = "BOT Demandas En Linea". Si empiezas desde cero, sigue estos pasos:
+La aplicación usa la base de datos de configuración **`bot_demandas_online`**, que contiene la tabla **`config_data_bases`** (ambientes dev, qa, pro; columnas: `environment`, `portfolio_type`, `campaign`, `data_bases`, `detail`, `state_type`, `created_at`, `updated_at`, `responsible`). Los seeds crean **un registro por campaign por ambiente**: tipo cartera **propias** con campañas tuya, laika y claro (3 filas por ambiente, 9 en total) con 3 bases de ejemplo cada una; tipo cartera **sudameris** con campaña sura (1 fila por ambiente, 3 en total) con 3 bases de ejemplo. **state_type** 0 = inactivo, 1 = activo; **responsible** = "BOT Demands Online". Si empiezas desde cero, sigue estos pasos:
 
 1. **Crear la base de datos** – Ejecuta el siguiente SQL (elimina la BD si existe y la crea con charset y collation):
 
@@ -263,31 +263,35 @@ La aplicación usa la base de datos de configuración **`bot_demandas_online`**,
 
    Ajusta también `DB_CONFIG_HOST`, `DB_CONFIG_PORT`, `DB_CONFIG_USER` y `DB_CONFIG_PASSWORD` según tu MySQL.
 
-3. **Ejecutar migraciones** (crea la tabla `config_data_bases` e inserta los seeds para dev, qa y pro):
+3. **Ejecutar migraciones (estructura)** – Crea/actualiza la tabla `config_data_bases` (sin insertar datos):
 
    ```bash
    cd bot-demandas-enlinea/v1
-   npm run migration:run
+   npm run migrations          # alias corto
+   # o, equivalente:
+   # npm run migration:run
    ```
 
-4. **Opcional – solo seeds** (vuelve a insertar datos de configuración sin revertir migraciones; es idempotente):
+4. **Cargar seeds de configuración** – Hace `TRUNCATE config_data_bases` y vuelve a insertar todas las filas definidas en los seeds:
 
    ```bash
-   npm run seed:run
+   npm run seeds               # alias corto
+   # o, equivalente:
+   # npm run seed:run
    ```
 
-5. **Revertir la última migración** (si aplica):
-
-   ```bash
-   npm run migration:revert
-   ```
-
-6. **Re-ejecutar todas las migraciones en la misma BD** (por ejemplo tras cambiar el esquema o los seeds; deshace las dos migraciones y las vuelve a correr):
+5. **Revertir la última migración de estructura** (si aplica):
 
    ```bash
    npm run migration:revert
-   npm run migration:revert
-   npm run migration:run
+   ```
+
+6. **Reset completo de estructura + datos de configuración** (por ejemplo, para dejar la BD “de cero” con los seeds actuales):
+
+   ```bash
+   npm run migration:revert    # elimina la tabla config_data_bases
+   npm run migrations          # vuelve a crear la tabla (estructura limpia)
+   npm run seeds               # TRUNCATE + inserta todos los seeds
    ```
 
 ---

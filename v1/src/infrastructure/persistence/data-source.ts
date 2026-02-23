@@ -11,7 +11,7 @@ export default new DataSource({
   username: process.env.DB_CONFIG_USER ?? 'root',
   password: process.env.DB_CONFIG_PASSWORD ?? '',
   database: process.env.DB_CONFIG_DATABASE ?? 'dbd_demands_online',
-  migrations: ['src/infrastructure/persistence/migrations/*.ts'],
+  migrations: ['src/infrastructure/persistence/migrations/**/*.ts'],
   migrationsTableName: 'migrations',
   synchronize: false,
   logging: process.env.DB_CONFIG_LOGGING === 'true',

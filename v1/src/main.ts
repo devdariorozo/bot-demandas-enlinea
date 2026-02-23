@@ -8,6 +8,9 @@ async function bootstrap() {
     bufferLogs: true,
   });
 
+  // Prefijo global para todas las rutas HTTP
+  app.setGlobalPrefix(process.env.GLOBAL_PREFIX ?? 'api/v1');
+
   const logger = new Logger('Bootstrap');
 
   app.useGlobalPipes(
@@ -31,11 +34,11 @@ La ejecución se realiza únicamente en horarios y días laborales configurados:
 El sistema está pensado para ser escalable por carteras. En el MVP se trabaja con un primer tipo de cartera: Carteras Propias. Posteriormente se incorporarán otras carteras (por ejemplo Carteras Sudameris) con sus propias estrategias de radicación y fuentes de datos, sin modificar el núcleo del sistema gracias a la arquitectura hexagonal y al uso de estrategias por cartera.`,
     )
     .setVersion('1.0')
-    .addTag('health', 'Verificación del servicio')
-    .addTag('demandas', 'Radicación y consulta de demandas')
-    .addTag('carteras', 'Carteras y campañas')
-    .addTag('config', 'Configuración (horarios, etc.)')
-    .addTag('admin', 'Administración (config. bases de datos, horarios de atención)')
+    .addTag('api', 'Verificación del servicio')
+    .addTag(
+      'databases',
+      'Configurar bases de datos por ambiente, tipo de cartera, campaña y estado',
+    )
     .build();
 
   const document = SwaggerModule.createDocument(app, config);

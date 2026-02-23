@@ -2,8 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { HealthModule } from './interfaces/modules/health.module';
-import { AdminModule } from './interfaces/modules/admin.module';
-import { ConfigDataBasesEntity } from './infrastructure/persistence/entities/config-data-bases.entity';
+import { DatabasesModule } from './interfaces/modules/administration/configuration/databases/databases.module';
+import { ConfigDataBasesEntity } from './infrastructure/persistence/entities/administration/configuration/databases/databases.entitiesy';
 
 @Module({
   imports: [
@@ -29,7 +29,7 @@ import { ConfigDataBasesEntity } from './infrastructure/persistence/entities/con
       inject: [ConfigService],
     }),
     HealthModule,
-    AdminModule,
+    DatabasesModule,
     // DemandaModule, CarteraModule, ConfigModule (horarios) - a implementar
   ],
 })

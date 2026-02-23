@@ -10,12 +10,12 @@ services:
   api:
     build: .
     image: ${NOMBRE_SERVICIO_DOCKER}:latest
-    container_name: ${NOMBRE_SERVICIO_DOCKER}-api
+    container_name: ${NOMBRE_SERVICIO_DOCKER}
     restart: unless-stopped
     network_mode: host
     env_file:
       - .env
-    command: npm run start:prod
+    command: npm run ${ENV_API}
 
   redis:
     image: redis:7-alpine

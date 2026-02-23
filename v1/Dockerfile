@@ -22,4 +22,4 @@ COPY --from=builder /usr/src/app/dist ./dist
 
 EXPOSE 5006
 
-CMD ["npm", "run", "start:prod"]
+CMD ["npm", "run", "pro"]

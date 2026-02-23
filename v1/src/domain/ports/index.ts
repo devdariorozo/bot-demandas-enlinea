@@ -1,2 +1,2 @@
 export * from './browser-automation.port';
-export * from './config-data-bases.repository.port';
+export * from './administration/configuration/databases/databases.port';
