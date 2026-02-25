@@ -10,6 +10,7 @@
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "node dist/main",
     "dev": "node dist/main",
+    "dev:watch": "nest start --watch",
     "qa": "node dist/main",
     "pro": "node dist/main",
     "debug": "node dist/main",
@@ -19,8 +20,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "typeorm": "ts-node -r tsconfig-paths/register ./node_modules/typeorm/cli.js",
-    "migrations": "npm run typeorm -- migration:run -d src/infrastructure/persistence/data-source.ts",
-    "migrations:revert": "npm run typeorm -- migration:revert -d src/infrastructure/persistence/data-source.ts",
+    "migrations": "npm run typeorm -- migration:run -d src/infrastructure/persistence/data_source.ts",
+    "migrations:revert": "npm run typeorm -- migration:revert -d src/infrastructure/persistence/data_source.ts",
     "seeds": "ts-node -r tsconfig-paths/register src/infrastructure/persistence/seeds/run-seeds.ts"
   },
   "dependencies": {

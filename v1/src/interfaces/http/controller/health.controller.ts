@@ -1,3 +1,5 @@
+// Responsabilidad: endpoints HTTP de Nest (controller).
+
 import { Controller, Get } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 

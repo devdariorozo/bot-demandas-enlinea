@@ -1,7 +1,11 @@
+// Responsabilidad: punto de entrada de la aplicación.
+
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { StateTypeDto, UpdateStateTypeDto } from '@interfaces/http/dto/stateType.dto';
+import { PortfolioTypeDto, UpdatePortfolioTypeDto } from '@interfaces/http/dto/portfolioType.dto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -35,13 +39,13 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
     )
     .setVersion('1.0')
     .addTag('api', 'Verificación del servicio')
-    .addTag(
-      'databases',
-      'Configurar bases de datos por ambiente, tipo de cartera, campaña y estado',
-    )
+    .addTag('stateType', 'Tipo de estado que puede tener un registro')
+    .addTag('portfolioType', 'Tipo de cartera que se puede tener en el sistema')
     .build();
 
-  const document = SwaggerModule.createDocument(app, config);
+  const document = SwaggerModule.createDocument(app, config, {
+    extraModels: [StateTypeDto, UpdateStateTypeDto, PortfolioTypeDto, UpdatePortfolioTypeDto],
+  });
   SwaggerModule.setup('docs', app, document);
 
   const port = process.env.PORT_API ?? 5006;
