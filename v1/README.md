@@ -266,6 +266,9 @@ La aplicación usa la base de datos de configuración **`bot_demandas_online`**,
 3. **Ejecutar migraciones (estructura)** – Crea/actualiza la tabla `config_data_bases` (sin insertar datos):
 
    ```bash
+Obtener la fecha y hora actual en formato ISO:
+node -e "console.log(Date.now())"
+
    cd bot-demandas-enlinea/v1
    npm run migrations          # alias corto
    # o, equivalente:
