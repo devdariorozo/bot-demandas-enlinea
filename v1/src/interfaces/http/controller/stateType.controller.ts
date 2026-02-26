@@ -40,17 +40,17 @@ export class StateTypeController {
     async findAll(): Promise<StateTypeDto[]> {
         return this.stateTypeService.findAll();
     }
+    // Obtener un tipo de estado por su type (ruta fija antes de :id)
+    @Get('byType/:type')
+    @ApiOperation({ summary: 'Obtener un tipo de estado por su type' })
+    async findByType(@Param('type') type: string): Promise<StateTypeDto> {
+        return this.stateTypeService.findByType(type);
+    }
     // Obtener un tipo de estado por su id
     @Get(':id')
     @ApiOperation({ summary: 'Obtener un tipo de estado por su id' })
     async findById(@Param('id') id: number): Promise<StateTypeDto> {
         return this.stateTypeService.findById(id);
-    }
-    // Obtener un tipo de estado por su type
-    @Get('type/:type')
-    @ApiOperation({ summary: 'Obtener un tipo de estado por su type' })
-    async findByType(@Param('type') type: string): Promise<StateTypeDto> {
-        return this.stateTypeService.findByType(type);
     }
     // Actualizar un tipo de estado
     @Put(':id')

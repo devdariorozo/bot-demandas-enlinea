@@ -4,6 +4,7 @@ import { ConflictException, Inject, Injectable, InternalServerErrorException, No
 import { BadRequestException } from '@nestjs/common';
 import { StateType } from "@domain/entities/stateType.entities";
 import { CreateStateTypeInput, STATE_TYPE_REPOSITORY, StateTypeRepository } from "@domain/ports/stateType.ports";
+import { capitalizeFirstWord } from '@application/utils/string.utils';
 
 @Injectable()
 export class StateTypeService {
@@ -21,8 +22,9 @@ export class StateTypeService {
         throw new ConflictException('State type already exists');
         }
     
+        const normalized = { ...stateType, detail: capitalizeFirstWord(stateType.detail) };
         try {
-            return await this.stateTypeRepository.create(stateType);
+            return await this.stateTypeRepository.create(normalized);
         } catch (error) {
             throw new InternalServerErrorException('Error creating state type');
         }
@@ -56,17 +58,18 @@ export class StateTypeService {
         const existing = await this.stateTypeRepository.findById(stateType.id);
         if (!existing) throw new NotFoundException('No data found for the given id');
 
+        const normalized = { ...stateType, detail: capitalizeFirstWord(stateType.detail) };
         const hasChanges =
-        existing.type !== stateType.type ||
-        existing.detail !== stateType.detail ||
-        existing.responsible !== stateType.responsible;
+        existing.type !== normalized.type ||
+        existing.detail !== normalized.detail ||
+        existing.responsible !== normalized.responsible;
 
         if (!hasChanges) {
         throw new BadRequestException('No changes to update');
         }
 
         try {
-            return await this.stateTypeRepository.update(stateType); // solo se ejecuta cuando SÍ hay cambios 
+            return await this.stateTypeRepository.update(normalized); // solo se ejecuta cuando SÍ hay cambios 
         } catch (error) {
             throw new InternalServerErrorException('Error updating state type');
         }

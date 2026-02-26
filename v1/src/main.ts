@@ -4,8 +4,17 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { EnvironmentTypeDto, UpdateEnvironmentTypeDto } from '@interfaces/http/dto/environmentType.dto';
 import { StateTypeDto, UpdateStateTypeDto } from '@interfaces/http/dto/stateType.dto';
 import { PortfolioTypeDto, UpdatePortfolioTypeDto } from '@interfaces/http/dto/portfolioType.dto';
+import { CampaingTypeDto, UpdateCampaingTypeDto } from '@interfaces/http/dto/campaingType.dto';
+import { DataBasesDto, UpdateDataBasesDto } from '@interfaces/http/dto/dataBases.dto';
+import { AttentionScheduleDto, UpdateAttentionScheduleDto } from '@interfaces/http/dto/attentionSchedule.dto';
+import { DepartamentDto, UpdateDepartamentDto } from '@interfaces/http/dto/departament.dto';
+import { CityDto, UpdateCityDto } from '@interfaces/http/dto/city.dto';
+import { ClassProcessConfigDto, UpdateClassProcessConfigDto } from '@interfaces/http/dto/classProcessConfig.dto';
+import { SpecialtyProcessDto, UpdateSpecialtyProcessDto } from '@interfaces/http/dto/specialtyProcess.dto';
+import { ClassProcessDto, UpdateClassProcessDto } from '@interfaces/http/dto/classProcess.dto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -39,12 +48,44 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
     )
     .setVersion('1.0')
     .addTag('api', 'Verificación del servicio')
+    .addTag('environmentType', 'Tipo de entorno que se puede tener en el sistema')
     .addTag('stateType', 'Tipo de estado que puede tener un registro')
     .addTag('portfolioType', 'Tipo de cartera que se puede tener en el sistema')
+    .addTag('campaingType', 'Tipo de campaña que se puede tener en el sistema')
+    .addTag('dataBases', 'Configuración de bases de datos por entorno, cartera y campaña')
+    .addTag('attentionSchedule', 'Horarios de atención por cartera y campaña')
+    .addTag('departament', 'Departamentos disponibles en la radicación de demandas')
+    .addTag('city', 'Ciudades disponibles en la radicación de demandas')
+    .addTag('specialtyProcess', 'Especialidades de proceso disponibles en la radicación de demandas')
+    .addTag('classProcess', 'Clases de proceso disponibles en la radicación de demandas')
+    .addTag('classProcessConfig', 'Configuración de clases de proceso por cartera y campaña')
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {
-    extraModels: [StateTypeDto, UpdateStateTypeDto, PortfolioTypeDto, UpdatePortfolioTypeDto],
+    extraModels: [
+      EnvironmentTypeDto,
+      UpdateEnvironmentTypeDto,
+      StateTypeDto,
+      UpdateStateTypeDto,
+      PortfolioTypeDto,
+      UpdatePortfolioTypeDto,
+      CampaingTypeDto,
+      UpdateCampaingTypeDto,
+      DataBasesDto,
+      UpdateDataBasesDto,
+      AttentionScheduleDto,
+      UpdateAttentionScheduleDto,
+      DepartamentDto,
+      UpdateDepartamentDto,
+      CityDto,
+      UpdateCityDto,
+      SpecialtyProcessDto,
+      UpdateSpecialtyProcessDto,
+      ClassProcessDto,
+      UpdateClassProcessDto,
+      ClassProcessConfigDto,
+      UpdateClassProcessConfigDto,
+    ],
   });
   SwaggerModule.setup('docs', app, document);
 

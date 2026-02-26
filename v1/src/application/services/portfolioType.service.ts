@@ -6,6 +6,7 @@ import { PortfolioType } from "@domain/entities/portfolioType.entities";
 import { CreatePortfolioTypeInput, PORTFOLIO_TYPE_REPOSITORY, PortfolioTypeRepository } from "@domain/ports/portfolioType.ports";
 import { STATE_TYPE_REPOSITORY, StateTypeRepository } from '@domain/ports/stateType.ports';
 import { StateTypeId } from '@domain/value-objects/stateType.valueobjects';
+import { capitalizeFirstWord } from '@application/utils/string.utils';
 
 @Injectable()
 export class PortfolioTypeService {
@@ -38,8 +39,9 @@ export class PortfolioTypeService {
             throw new ConflictException('Portfolio type already exists');
         }
     
+        const normalized = { ...portfolioType, detail: capitalizeFirstWord(portfolioType.detail) };
         try {
-            return await this.portfolioTypeRepository.create(portfolioType);
+            return await this.portfolioTypeRepository.create(normalized);
         } catch (error) {
             throw new InternalServerErrorException('Error creating portfolio type');
         }
@@ -104,18 +106,19 @@ export class PortfolioTypeService {
         } catch {
             throw new NotFoundException('No data found for the given id');
         }
+        const normalized = { ...portfolioType, detail: capitalizeFirstWord(portfolioType.detail) };
         const hasChanges =
-        existing.type !== portfolioType.type ||
-        existing.detail !== portfolioType.detail ||
-        existing.state_type_id !== portfolioType.state_type_id ||
-        existing.responsible !== portfolioType.responsible;
+        existing.type !== normalized.type ||
+        existing.detail !== normalized.detail ||
+        existing.state_type_id !== normalized.state_type_id ||
+        existing.responsible !== normalized.responsible;
 
         if (!hasChanges) {
         throw new BadRequestException('No changes to update');
         }
 
         try {
-            return await this.portfolioTypeRepository.update(portfolioType); // solo se ejecuta cuando SÍ hay cambios 
+            return await this.portfolioTypeRepository.update(normalized); // solo se ejecuta cuando SÍ hay cambios 
         } catch (error) {
             throw new InternalServerErrorException('Error updating portfolio type');
         }

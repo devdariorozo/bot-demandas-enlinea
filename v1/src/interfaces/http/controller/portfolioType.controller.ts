@@ -43,17 +43,17 @@ export class PortfolioTypeController {
     async findAll(): Promise<PortfolioTypeDto[]> {
         return this.portfolioTypeService.findAll();
     }
+    // Obtener un tipo de cartera por su type (ruta fija antes de :id)
+    @Get('byType/:type')
+    @ApiOperation({ summary: 'Obtener un tipo de cartera por su type' })
+    async findByType(@Param('type') type: string): Promise<PortfolioTypeDto> {
+        return this.portfolioTypeService.findByType(type);
+    }
     // Obtener un tipo de cartera por su id
     @Get(':id')
     @ApiOperation({ summary: 'Obtener un tipo de cartera por su id' })
     async findById(@Param('id') id: number): Promise<PortfolioTypeDto> {
         return this.portfolioTypeService.findById(id);
-    }
-    // Obtener un tipo de cartera por su type
-    @Get('type/:type')
-    @ApiOperation({ summary: 'Obtener un tipo de cartera por su type' })
-    async findByType(@Param('type') type: string): Promise<PortfolioTypeDto> {
-        return this.portfolioTypeService.findByType(type);
     }
     // Actualizar un tipo de cartera
     @Put(':id')
