@@ -14,7 +14,7 @@ El sistema está pensado para ser **escalable por carteras**. En el **MVP** se t
 
 ## 🤝 Contribución
 
-Puedes abrir el repositorio aquí: [https://dev.azure.com/MontecheloPipelines/urlfinalrepo](https://dev.azure.com/MontecheloPipelines/urlfinalrepo)
+Puedes abrir el repositorio aquí: [https://dev.azure.com/MontecheloPipelines/SquadMiosV2/_git/bot-demandas-enlinea](https://dev.azure.com/MontecheloPipelines/SquadMiosV2/_git/bot-demandas-enlinea)
 
 ### Flujo de Trabajo
 
