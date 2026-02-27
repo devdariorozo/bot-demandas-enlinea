@@ -8,9 +8,8 @@
   "scripts": {
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
-    "start": "node dist/main",
-    "dev": "node dist/main",
-    "dev:watch": "nest start --watch",
+    "dev": "nest start --watch",
+    "docker": "node dist/main",
     "qa": "node dist/main",
     "pro": "node dist/main",
     "debug": "node dist/main",

@@ -232,14 +232,37 @@ Documentación automática de la API:
 
 ### Base de datos
 
-La aplicación usa la base de datos de configuración **`bot_demandas_online`**, que contiene la tabla **`config_data_bases`** (ambientes dev, qa, pro; columnas: `environment`, `portfolio_type`, `campaign`, `data_bases`, `detail`, `state_type`, `created_at`, `updated_at`, `responsible`). Los seeds crean **un registro por campaign por ambiente**: tipo cartera **propias** con campañas tuya, laika y claro (3 filas por ambiente, 9 en total) con 3 bases de ejemplo cada una; tipo cartera **sudameris** con campaña sura (1 fila por ambiente, 3 en total) con 3 bases de ejemplo. **state_type** 0 = inactivo, 1 = activo; **responsible** = "BOT Demands Online". Si empiezas desde cero, sigue estos pasos:
+La API se apoya en una **BD de configuración única** (multi-cartera y multi-campaña) y, opcionalmente, en una BD por cartera.  
+La BD de configuración por defecto en esta versión es **`dbd_demands_online`**, controlada por la variable:
+
+```env
+DB_CONFIG_DATABASE=dbd_demands_online
+```
+
+En esa BD se crean, vía **migraciones TypeORM**, las tablas de catálogo y configuración que ya ves en el código:
+
+- `environment_type`  
+- `state_type`  
+- `portfolio_type`  
+- `campaing_type`  
+- `data_bases` (BDs por entorno/cartera/campaña)  
+- `attention_schedule` (horarios por cartera/campaña)  
+- `departament`  
+- `city`  
+- `specialty_process` (especialidades del portal Demanda en Línea)  
+- `class_process` (clases de proceso por especialidad)  
+- `class_process_config` (cruce cartera + campaña + clases de proceso)
+
+Los seeds llenan estas tablas con datos base (entornos dev/qa/pro, tipos de estado, carteras **Propias/Sudameris**, campañas **Claro/Tuya**, catálogos de departamentos/ciudades y el cruce inicial de clases de proceso por cartera/campaña).
+
+Si empiezas desde cero, sigue estos pasos:
 
 1. **Crear la base de datos** – Ejecuta el siguiente SQL (elimina la BD si existe y la crea con charset y collation):
 
    ```sql
-   DROP DATABASE IF EXISTS bot_demandas_online;
+   DROP DATABASE IF EXISTS dbd_demands_online;
 
-   CREATE DATABASE bot_demandas_online
+   CREATE DATABASE dbd_demands_online
      CHARACTER SET utf8mb4
      COLLATE utf8mb4_0900_ai_ci;
    ```
@@ -248,22 +271,22 @@ La aplicación usa la base de datos de configuración **`bot_demandas_online`**,
 
    ```bash
    mysql -h $DB_CONFIG_HOST -P $DB_CONFIG_PORT -u $DB_CONFIG_USER -p -e "
-     DROP DATABASE IF EXISTS bot_demandas_online;
-     CREATE DATABASE bot_demandas_online
+     DROP DATABASE IF EXISTS dbd_demands_online;
+     CREATE DATABASE dbd_demands_online
        CHARACTER SET utf8mb4
        COLLATE utf8mb4_0900_ai_ci;
    "
    ```
 
-2. **Configurar `.env`** – Copia `.env.example` a `.env` y define la BD de configuración (el ejemplo ya trae `bot_demandas_online`):
+2. **Configurar `.env`** – Copia `.env.example` a `.env` (si aplica) y define la BD de configuración:
 
    ```env
-   DB_CONFIG_DATABASE=bot_demandas_online
+   DB_CONFIG_DATABASE=dbd_demands_online
    ```
 
    Ajusta también `DB_CONFIG_HOST`, `DB_CONFIG_PORT`, `DB_CONFIG_USER` y `DB_CONFIG_PASSWORD` según tu MySQL.
 
-3. **Ejecutar migraciones (estructura)** – Crea/actualiza la tabla `config_data_bases` (sin insertar datos):
+3. **Ejecutar migraciones (estructura)** – Crea/actualiza **todas las tablas** de configuración (`environment_type`, `state_type`, `portfolio_type`, `campaing_type`, `data_bases`, `attention_schedule`, `departament`, `city`, `specialty_process`, `class_process`, `class_process_config`):
 
    ```bash
 Obtener la fecha y hora actual en formato ISO:
@@ -431,6 +454,29 @@ Para cualquier ambiente:
 
 **Notas importantes:**
 - Cuando se levanta el sistema el bot no se inicia automáticamente; se debe iniciar manualmente mediante el endpoint que se defina para ello (por ejemplo `/start` o `/execute`) desde Swagger UI.
+
+### Resumen práctico: local vs Docker
+
+- **Para desarrollar** (recomendado):
+  - Ejecutar localmente con:
+    - `npm run migrations`
+    - `npm run seeds`
+    - `npm run dev`
+  - Deja en `.env` algo como:
+    - `ENV_API=dev`
+    - `DB_CONFIG_HOST=localhost`
+    - `DB_CONFIG_DATABASE=dbd_demands_online`
+
+- **Para probar con Docker Compose**:
+  - Desde `v1/`:
+    - `docker compose build --no-cache`
+    - `docker compose up` (o `docker compose up -d`)
+    - `docker compose down`
+  - Asegúrate de tener en `.env`:
+    - `ENV_API=docker`  → el `docker-compose.yml` ejecuta internamente `npm run docker`
+    - `DB_CONFIG_HOST=localhost` (con `network_mode: host`, apunta a tu MySQL local)
+
+De esta manera, en desarrollo aprovechas el *watch* de Nest (`npm run dev`), y cuando necesites validar “como en servidor” sólo usas los tres comandos Docker indicados arriba.
 
 
 ## 📞 Soporte
