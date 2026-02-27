@@ -490,20 +490,34 @@ De esta manera, en desarrollo aprovechas el *watch* de Nest (`npm run dev`), y c
 - Hacer un telnet a la ip 172.17.8.141 y puerto 3306 para verificar que se pueda conectar a la BD.
 - Activar el telnet si no está activo en tu sistema operativo.
 - Problemas de red entre docker y el servidor de QA por causas de networking 172.17.x.x, por lo que se debe:
-  - Validar el comando `ip route` en tu sistema operativo para verificar que la red de docker no esté en el mismo segmento de red 172.17.x.x.
-  - Cambiar la red por defecto de docker en el archivo `/etc/docker/daemon.json` agregando la siguiente configuración para evitar conflictos de networking 172.17.x.x:
+  - Validar el comando `ip route` en tu sistema operativo (WSL) para verificar que la red de Docker no esté en el mismo segmento de red 172.17.x.x (por ejemplo, que NO aparezca `172.17.0.0/16 dev br-XXXX`).
+  - Cambiar la red por defecto de Docker en el archivo `/etc/docker/daemon.json` agregando la siguiente configuración para evitar conflictos de networking 172.17.x.x:
     ```json
         {
           "bip": "172.30.0.1/16"
         }
     ```
- - Reiniciar Docker:
+  - **Eliminar redes Docker antiguas que usen 172.17.x.x (por ejemplo `v1_default`)**:
+    - Desde WSL, en la carpeta del proyecto:
+      ```bash
+      cd ~/projects-enviromental-dev/bot-demandas-enlinea/v1
+      docker compose down          # detiene contenedores y libera la red por defecto del compose
+      docker network ls            # revisar redes existentes
+      docker network rm v1_default # eliminar red antigua si sigue apareciendo
+      ```
+    - Volver a validar con `ip route` que ya no exista la ruta `172.17.0.0/16 dev br-...`.
+  - Reiniciar Docker:
     ```bash
     sudo service docker restart
     ```
- - Validar la configuración con el comando `ip route` nuevamente.
- - Volver a realizar el telnet a la ip 172.17.8.141 y puerto 3306 para verificar que se pueda conectar a la BD.
- - Levantar el stack de docker nuevamente.
+  - Validar la configuración con el comando `ip route` nuevamente.
+  - Volver a realizar el telnet a la ip 172.17.8.141 y puerto 3306 para verificar que se pueda conectar a la BD.
+  - Levantar el stack de docker nuevamente:
+    ```bash
+    cd ~/projects-enviromental-dev/bot-demandas-enlinea/v1
+    docker compose build --no-cache
+    docker compose up -d
+    ```
 
  - Si usas subsystem ubuntu sobre windows y WSL2 debe tambien crear el archivo .wslconfig dentro de windows en la ruta `C:\Users\TU_USUARIO\.wslconfig` y agregar la siguiente configuración:
     ```ini
