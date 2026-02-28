@@ -2,21 +2,27 @@
 
 import { Entity, PrimaryGeneratedColumn, Column } from 'typeorm';
 
-@Entity('data_bases')
-export class DataBasesEntity {
+@Entity('portfolio_city_config')
+export class PortfolioCityConfigEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
   @Column()
-  environment_type_id: number;
+  id_data_bases: number;
 
   @Column()
-  portfolio_type_id: number;
+  id_city_views: number;
 
-  @Column('json')
-  bases: string[];
+  @Column({ length: 255 })
+  name_departament: string;
 
-  @Column()
+  @Column({ length: 255 })
+  name_city: string;
+
+  @Column({ length: 255 })
+  city: string;
+
+  @Column({ length: 500 })
   detail: string;
 
   @Column()
@@ -28,7 +34,6 @@ export class DataBasesEntity {
   @Column()
   updated_at: Date;
 
-  @Column()
+  @Column({ length: 100 })
   responsible: string;
 }
-

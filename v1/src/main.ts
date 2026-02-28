@@ -4,17 +4,13 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { JsonParseExceptionFilter } from './interfaces/http/filters/jsonParseException.filter';
 import { EnvironmentTypeDto, UpdateEnvironmentTypeDto } from '@interfaces/http/dto/environmentType.dto';
 import { StateTypeDto, UpdateStateTypeDto } from '@interfaces/http/dto/stateType.dto';
 import { PortfolioTypeDto, UpdatePortfolioTypeDto } from '@interfaces/http/dto/portfolioType.dto';
-import { CampaingTypeDto, UpdateCampaingTypeDto } from '@interfaces/http/dto/campaingType.dto';
 import { DataBasesDto, UpdateDataBasesDto } from '@interfaces/http/dto/dataBases.dto';
-import { AttentionScheduleDto, UpdateAttentionScheduleDto } from '@interfaces/http/dto/attentionSchedule.dto';
-import { DepartamentDto, UpdateDepartamentDto } from '@interfaces/http/dto/departament.dto';
-import { CityDto, UpdateCityDto } from '@interfaces/http/dto/city.dto';
-import { ClassProcessConfigDto, UpdateClassProcessConfigDto } from '@interfaces/http/dto/classProcessConfig.dto';
-import { SpecialtyProcessDto, UpdateSpecialtyProcessDto } from '@interfaces/http/dto/specialtyProcess.dto';
-import { ClassProcessDto, UpdateClassProcessDto } from '@interfaces/http/dto/classProcess.dto';
+import { CreateAttentionScheduleDto, AttentionScheduleDto, UpdateAttentionScheduleDto } from '@interfaces/http/dto/attentionSchedule.dto';
+import { PortfolioCityConfigDto, UpdatePortfolioCityConfigDto } from '@interfaces/http/dto/portfolioCityConfig.dto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -34,6 +30,8 @@ async function bootstrap() {
     }),
   );
 
+  app.useGlobalFilters(new JsonParseExceptionFilter());
+
   const swaggerTitle =
     process.env.NOMBRE_SERVICIO_SWAGGER ?? 'Bot Demandas en Línea';
 
@@ -51,14 +49,9 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
     .addTag('environmentType', 'Tipo de entorno que se puede tener en el sistema')
     .addTag('stateType', 'Tipo de estado que puede tener un registro')
     .addTag('portfolioType', 'Tipo de cartera que se puede tener en el sistema')
-    .addTag('campaingType', 'Tipo de campaña que se puede tener en el sistema')
-    .addTag('dataBases', 'Configuración de bases de datos por entorno, cartera y campaña')
-    .addTag('attentionSchedule', 'Horarios de atención por cartera y campaña')
-    .addTag('departament', 'Departamentos disponibles en la radicación de demandas')
-    .addTag('city', 'Ciudades disponibles en la radicación de demandas')
-    .addTag('specialtyProcess', 'Especialidades de proceso disponibles en la radicación de demandas')
-    .addTag('classProcess', 'Clases de proceso disponibles en la radicación de demandas')
-    .addTag('classProcessConfig', 'Configuración de clases de proceso por cartera y campaña')
+    .addTag('dataBases', 'Configuración de bases de datos por entorno y cartera')
+    .addTag('attentionSchedule', 'Horarios de atención por cartera')
+    .addTag('portfolioCityConfig', 'Configuración de ciudades por cartera')
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {
@@ -69,22 +62,13 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
       UpdateStateTypeDto,
       PortfolioTypeDto,
       UpdatePortfolioTypeDto,
-      CampaingTypeDto,
-      UpdateCampaingTypeDto,
       DataBasesDto,
       UpdateDataBasesDto,
+      CreateAttentionScheduleDto,
       AttentionScheduleDto,
       UpdateAttentionScheduleDto,
-      DepartamentDto,
-      UpdateDepartamentDto,
-      CityDto,
-      UpdateCityDto,
-      SpecialtyProcessDto,
-      UpdateSpecialtyProcessDto,
-      ClassProcessDto,
-      UpdateClassProcessDto,
-      ClassProcessConfigDto,
-      UpdateClassProcessConfigDto,
+      PortfolioCityConfigDto,
+      UpdatePortfolioCityConfigDto,
     ],
   });
   SwaggerModule.setup('docs', app, document);

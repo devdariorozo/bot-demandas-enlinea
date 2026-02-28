@@ -11,6 +11,16 @@ La ejecución se realiza únicamente en **horarios y días laborales configurado
 
 El sistema está pensado para ser **escalable por carteras**. En el **MVP** se trabaja con un primer tipo de cartera: **Carteras Propias**. Posteriormente se incorporarán otras carteras (por ejemplo **Carteras Sudameris**) con sus propias estrategias de radicación y fuentes de datos, sin modificar el núcleo del sistema gracias a la arquitectura hexagonal y al uso de estrategias por cartera.
 
+### Estado actual (v1)
+
+En esta versión está implementada la **API de configuración** sobre **NestJS**, **TypeORM** y **MySQL**, con arquitectura hexagonal:
+
+- **Catálogos base:** tipo de entorno (`environment_type`), tipo de estado (`state_type`), tipo de cartera (`portfolio_type`).
+- **Configuración operativa:** bases de datos por entorno/cartera (`data_bases`), horarios de atención por cartera (`attention_schedule`), configuración cartera–ciudad (`portfolio_city_config`).
+- **API REST** con prefijo `api/v1`, documentada con **Swagger** en `/docs`.
+- **Migraciones** TypeORM para crear las tablas y **seeds** para datos iniciales (dev/qa/pro, carteras Propias y Sudameris, ejemplos de `portfolio_city_config`).
+
+Pendiente para fases posteriores: automatización con Puppeteer/Browserless, colas BullMQ, endpoints de radicación de demandas y orquestador completo.
 
 ## 🤝 Contribución
 
@@ -143,33 +153,42 @@ El sistema se basa en **arquitectura Hexagonal (Ports & Adapters)**, alineada co
 ## 📁 Estructura del Proyecto
 
 ```text
-bot-demandas-enlinea/
-├── v1/
-│   ├── src/
-│   │   ├── domain/                    # Núcleo de negocio (entidades, VOs, puertos)
-│   │   │   ├── entities/              # Demanda, Cartera, SujetoProcesal, Campaña, etc.
-│   │   │   ├── value-objects/         # Nit, Correo, HorarioLaboral, CodigoCiudad, etc.
-│   │   │   └── ports/                 # BrowserAutomationPort, DemandaRepositoryPort, HorarioLaboralPort, etc.
-│   │   ├── application/               # Casos de uso y lógica de orquestación
-│   │   │   ├── use-cases/             # OrquestarRadicacionDemanda, ConsultarPendientes, ActualizarEstado, etc.
-│   │   │   └── strategies/            # Estrategias por cartera/campaña (CarterasPropias, Sudameris, ...)
-│   │   ├── infrastructure/            # Adaptadores concretos (límite exterior del hexágono)
-│   │   │   ├── browser/               # BrowserlessPuppeteerAdapter (Puppeteer + Browserless)
-│   │   │   ├── persistence/           # Repositorios MySQL (configuración + BD por cartera)
-│   │   │   ├── scheduling/            # Adaptador de horarios / calendario (días laborales, festivos CO)
-│   │   │   └── queues/                # Procesadores BullMQ (colas de radicación)
-│   │   └── interfaces/                # API REST y demás interfaces de entrada
-│   │       ├── http/                  # Controladores NestJS (demandas, carteras, config/horarios)
-│   │       └── modules/               # Módulos NestJS (DemandaModule, CarteraModule, ConfigModule, ...)
-│   ├── test/                          # Pruebas unitarias e integración
-│   ├── docker/                        # Archivos relacionados a Docker y docker-compose
-│   ├── package.json
-│   ├── tsconfig.json
-│   └── README.md                      # Documentación específica de la versión v1
-└── README.md                          # Documentación general del repositorio
+v1/
+├── src/
+│   ├── domain/                        # Núcleo de negocio (entidades, VOs, puertos)
+│   │   ├── entities/                  # environmentType, stateType, portfolioType, dataBases, attentionSchedule, portfolioCityConfig
+│   │   ├── value-objects/            # IDs y validaciones (EnvironmentTypeId, StateTypeId, DataBasesId, CityViewsId, etc.)
+│   │   └── ports/                    # Contratos de repositorios (por entidad)
+│   ├── application/                   # Casos de uso y servicios de aplicación
+│   │   ├── services/                 # EnvironmentTypeService, DataBasesService, AttentionScheduleService, PortfolioCityConfigService, etc.
+│   │   ├── use-cases/                # Archivos de casos de uso (por dominio)
+│   │   └── utils/                    # Utilidades (ej. string.utils)
+│   ├── infrastructure/                # Adaptadores concretos
+│   │   └── persistence/              # TypeORM
+│   │       ├── entities/             # Entidades TypeORM (mapeo tabla)
+│   │       ├── migrations/           # Migraciones (environment_type, state_type, portfolio_type, data_bases, attention_schedule, portfolio_city_config)
+│   │       ├── repositories/         # Implementación de los puertos (por entidad)
+│   │       ├── seeds/                # Datos iniciales (run-seeds.ts + seeds por tabla)
+│   │       └── data_source.ts        # DataSource para CLI de migraciones/seeds
+│   └── interfaces/                    # API REST
+│       ├── http/
+│       │   ├── controller/           # Controladores NestJS por recurso
+│       │   └── dto/                  # DTOs con class-validator y Swagger
+│       └── modules/                  # Módulos NestJS (HealthModule, EnvironmentTypeModule, StateTypeModule, etc.)
+├── package.json
+├── tsconfig.json
+└── README.md
 ```
 
 ## 🧩 Componentes Principales
+
+- **CRUD de catálogos:** tipos de entorno (dev/docker/qa/pro), estados (Active/Inactive) y carteras (Propias, Sudameris).
+- **CRUD dataBases:** configuración de bases de datos por entorno y cartera; listado de bases y consulta por entorno/cartera.
+- **CRUD attentionSchedule:** horarios de atención por cartera. Un registro por horario: `days` es un **array JSON** de días en español (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo), más `start_time`, `end_time`, `detail`, `state_type_id` y `responsible`. Restricción única `(portfolio_type_id, start_time, end_time)`. Validación de duplicados (409 si ya existe ese tramo horario para la cartera). GET `/byPortfolio?portfolio_type_id=&days=` devuelve 404 si el `portfolio_type_id` no existe; opcionalmente filtra por un día. PUT sin cambios responde 400 con "No changes to update". Mensajes de error en inglés.
+- **CRUD portfolioCityConfig:** configuración cartera–ciudad; por id o por `id_data_bases` + `id_city_views` (404 si no existe); `vCitiesFetch` para consultar la vista `v_cities` de la primera base del registro.
+- **API REST (NestJS + Swagger):** prefijo `api/v1`, validación con `class-validator`, documentación en `/docs`.
+
+*Pendientes para fases posteriores:* orquestador de demandas, Puppeteer/Browserless, BullMQ/Redis, endpoints de radicación.
 
 - **Orquestador de Demandas**: coordina el flujo completo de radicación por cartera y campaña, respetando horarios laborales configurados.
 - **Módulo de Cartera / Estrategias**: encapsula la lógica por tipo de cartera (MVP: **Carteras Propias**; futuro: **Carteras Sudameris**, etc.), permitiendo distintas reglas de mapeo y validación por cartera y campaña. Diseñado para escalar a múltiples carteras sin cambiar el núcleo del sistema.
@@ -203,19 +222,17 @@ bot-demandas-enlinea/
 
 ## 🔍 Endpoints Principales
 
-Endpoints planeados para la API REST (NestJS), documentados con Swagger:
+Todos bajo el prefijo **`api/v1`**. Documentación interactiva: **`http://localhost:5006/docs`** (o el `PORT_API` configurado).
 
-- `GET /health` – Verificación de que el servicio está vivo.
-- `POST /api/v1/demandas` – Crea un trabajo de radicación para una cartera/campaña.
-- `GET /api/v1/demandas/{id}` – Consulta el estado de una demanda (pendiente, en proceso, exitosa, error).
-- `POST /api/v1/demandas/{id}/reintentar` – Reintenta la radicación de una demanda que falló.
-- `GET /api/v1/carteras` – Lista carteras y campañas configuradas.
-- `GET /api/v1/config/horarios` – Consulta la configuración de horarios y días laborales (y en el futuro, ajustes vía frontend).
-
-Documentación automática de la API:
-
-- `Swagger UI` – Documentación interactiva generada desde OpenAPI.
-- `http://localhost:5006/docs` (puerto y ruta ajustables según configuración final).
+| Recurso | Método | Descripción |
+|--------|--------|-------------|
+| **health** | GET | Verificación de que el servicio está vivo. |
+| **environmentType** | GET, GET /:id, POST, PUT /:id, DELETE /:id | CRUD tipo de entorno (dev, docker, qa, pro). |
+| **stateType** | GET, GET /:id, POST, PUT /:id, DELETE /:id | CRUD tipo de estado (Active, Inactive). |
+| **portfolioType** | GET, GET /:id, POST, PUT /:id, DELETE /:id | CRUD tipo de cartera (Propias, Sudameris). |
+| **dataBases** | GET, GET /:id, GET /byEnvAndPortf, POST, PUT /:id, DELETE /:id | CRUD bases de datos por entorno/cartera. |
+| **attentionSchedule** | GET, GET /:id, GET /byPortfolio, POST, PUT /:id, DELETE /:id | CRUD horarios de atención por cartera. POST: body con `days` (array de días en español), `portfolio_type_id`, `start_time`, `end_time`, `detail`, `state_type_id`, `responsible`; un solo registro por request. GET /byPortfolio: query `portfolio_type_id` (obligatorio), `days` (opcional); 404 si el portfolio_type_id no existe. PUT: 400 "No changes to update" si no hay cambios. |
+| **portfolioCityConfig** | GET, GET /:id, GET /byDataBasesAndCityViews, GET /vCitiesFetch, POST, PUT /:id, DELETE /:id | CRUD configuración cartera–ciudad; por ids devuelve 404 si no existe; `vCitiesFetch` consulta la vista `v_cities` de la primera base del registro. |
 
 
 ## 🔒 Seguridad
@@ -232,28 +249,22 @@ Documentación automática de la API:
 
 ### Base de datos
 
-La API se apoya en una **BD de configuración única** (multi-cartera y multi-campaña) y, opcionalmente, en una BD por cartera.  
-La BD de configuración por defecto en esta versión es **`dbd_demands_online`**, controlada por la variable:
+La API usa una **BD de configuración única**. El nombre se define en `.env`:
 
 ```env
 DB_CONFIG_DATABASE=dbd_demands_online
 ```
 
-En esa BD se crean, vía **migraciones TypeORM**, las tablas de catálogo y configuración que ya ves en el código:
+En esa BD se crean, vía **migraciones TypeORM**, las tablas:
 
-- `environment_type`  
-- `state_type`  
-- `portfolio_type`  
-- `campaing_type`  
-- `data_bases` (BDs por entorno/cartera/campaña)  
-- `attention_schedule` (horarios por cartera/campaña)  
-- `departament`  
-- `city`  
-- `specialty_process` (especialidades del portal Demanda en Línea)  
-- `class_process` (clases de proceso por especialidad)  
-- `class_process_config` (cruce cartera + campaña + clases de proceso)
+- `environment_type` — tipos de entorno (dev, docker, qa, pro)
+- `state_type` — tipos de estado (Active, Inactive)
+- `portfolio_type` — tipos de cartera (Propias, Sudameris)
+- `data_bases` — bases de datos por entorno y cartera
+- `attention_schedule` — horarios de atención por cartera (un registro por tramo horario; columna `days` en JSON, p. ej. `["Lunes","Martes","Miércoles","Jueves","Viernes"]`; UNIQUE `portfolio_type_id`, `start_time`, `end_time`)
+- `portfolio_city_config` — configuración cartera–ciudad (id_data_bases, id_city_views, name_departament, name_city, city, detail, etc.)
 
-Los seeds llenan estas tablas con datos base (entornos dev/qa/pro, tipos de estado, carteras **Propias/Sudameris**, campañas **Claro/Tuya**, catálogos de departamentos/ciudades y el cruce inicial de clases de proceso por cartera/campaña).
+Los **seeds** cargan datos iniciales: entornos, estados, carteras, registros de `data_bases` (dev/docker/qa/pro para Propias y Sudameris), horarios de atención y ejemplos de `portfolio_city_config`.
 
 Si empiezas desde cero, sigue estos pasos:
 
@@ -271,54 +282,47 @@ Si empiezas desde cero, sigue estos pasos:
 
    ```bash
    mysql -h $DB_CONFIG_HOST -P $DB_CONFIG_PORT -u $DB_CONFIG_USER -p -e "
-     DROP DATABASE IF EXISTS dbd_demands_online;
-     CREATE DATABASE dbd_demands_online
-       CHARACTER SET utf8mb4
-       COLLATE utf8mb4_0900_ai_ci;
+     DROP DATABASE IF EXISTS bot_demandas_online;
+     CREATE DATABASE bot_demandas_online CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
    "
    ```
 
-2. **Configurar `.env`** – Copia `.env.example` a `.env` (si aplica) y define la BD de configuración:
+2. **Configurar `.env`** – Copia `.env.example` a `.env` y define:
 
    ```env
-   DB_CONFIG_DATABASE=dbd_demands_online
+   DB_CONFIG_HOST=localhost
+   DB_CONFIG_PORT=3306
+   DB_CONFIG_USER=tu_usuario
+   DB_CONFIG_PASSWORD=tu_password
+   DB_CONFIG_DATABASE=bot_demandas_online
    ```
 
-   Ajusta también `DB_CONFIG_HOST`, `DB_CONFIG_PORT`, `DB_CONFIG_USER` y `DB_CONFIG_PASSWORD` según tu MySQL.
-
-3. **Ejecutar migraciones (estructura)** – Crea/actualiza **todas las tablas** de configuración (`environment_type`, `state_type`, `portfolio_type`, `campaing_type`, `data_bases`, `attention_schedule`, `departament`, `city`, `specialty_process`, `class_process`, `class_process_config`):
+3. **Ejecutar migraciones** – Crea todas las tablas de configuración:
 
    ```bash
-Obtener la fecha y hora actual en formato ISO:
-node -e "console.log(Date.now())"
-
-   cd bot-demandas-enlinea/v1
-   npm run migrations          # alias corto
-   # o, equivalente:
-   # npm run migration:run
+   cd v1
+   npm run migrations
    ```
 
-4. **Cargar seeds de configuración** – Hace `TRUNCATE config_data_bases` y vuelve a insertar todas las filas definidas en los seeds:
+4. **Cargar seeds** – TRUNCATE de las tablas de configuración e inserción de datos iniciales:
 
    ```bash
-   npm run seeds               # alias corto
-   # o, equivalente:
-   # npm run seed:run
+   npm run seeds
    ```
 
-5. **Revertir la última migración de estructura** (si aplica):
+5. **Revertir la última migración** (si aplica):
 
    ```bash
-   npm run migration:revert
+   npm run migrations:revert
    ```
 
-6. **Reset completo de estructura + datos de configuración** (por ejemplo, para dejar la BD “de cero” con los seeds actuales):
+6. **Arrancar la API**:
 
    ```bash
-   npm run migration:revert    # elimina la tabla config_data_bases
-   npm run migrations          # vuelve a crear la tabla (estructura limpia)
-   npm run seeds               # TRUNCATE + inserta todos los seeds
+   npm run dev
    ```
+
+   API: `http://localhost:5006` (o `PORT_API`). Swagger: `http://localhost:5006/docs`.
 
 ---
 
@@ -477,6 +481,34 @@ Para cualquier ambiente:
     - `DB_CONFIG_HOST=localhost` (con `network_mode: host`, apunta a tu MySQL local)
 
 De esta manera, en desarrollo aprovechas el *watch* de Nest (`npm run dev`), y cuando necesites validar “como en servidor” sólo usas los tres comandos Docker indicados arriba.
+
+### Mapeo de `ENV_API` por entorno
+
+En el `.env` se usa la variable `ENV_API` para indicar **cómo** debe arrancar la API:
+
+- `ENV_API=dev`  
+  - Uso típico: desarrollo local con `npm run dev`.  
+  - Comando manual: `npm run dev` (NestJS con *watch*).  
+  - Requiere que `DB_CONFIG_HOST` apunte a tu MySQL local o a QA/PRO si tienes VPN.
+
+- `ENV_API=docker`  
+  - Uso típico: cuando levantas con `docker compose`.  
+  - El `docker-compose.yml` hace `command: npm run ${ENV_API}` → `npm run docker` → `node dist/main`.  
+  - Ideal para pruebas de imagen en tu máquina (misma configuración que en servidor).
+
+- `ENV_API=qa`  
+  - Uso típico: ejecutar la API apuntando al entorno de **QA** (por ejemplo, desde un servidor de QA).  
+  - Comando equivalente: `npm run qa` → `node dist/main`.  
+  - **Requisito obligatorio:** tener la **VPN activa** (o estar dentro de la red corporativa) y configurar:
+    - `DB_CONFIG_HOST=172.17.8.141` (o el host de QA que te den)
+    - resto de credenciales `DB_CONFIG_*` de QA.
+
+- `ENV_API=pro`  
+  - Uso típico: entorno de **producción**.  
+  - Comando equivalente: `npm run pro` → `node dist/main`.  
+  - Debe usar las credenciales y host de BD de producción, con la conectividad asegurada por la red corporativa.
+
+> **Importante en QA:** sin VPN activa (o sin ruta válida a `172.17.8.141:3306`) la API no podrá conectarse a la BD de QA, ni en local ni dentro de Docker. Siempre valida primero con `telnet 172.17.8.141 3306`.
 
 
 ## 📞 Soporte

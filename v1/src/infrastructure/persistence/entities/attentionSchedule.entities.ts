@@ -10,14 +10,8 @@ export class AttentionScheduleEntity {
   @Column()
   portfolio_type_id: number;
 
-  @Column()
-  campaing_type_id: number;
-
-  @Column()
-  day_of_week: string;
-
-  @Column({ name: 'shift_type' })
-  shiftType: string;
+  @Column('json')
+  days: string[];
 
   @Column({ type: 'time' })
   start_time: string;

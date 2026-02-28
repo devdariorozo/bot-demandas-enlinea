@@ -11,9 +11,8 @@ import { CreateDataBasesInput } from '@domain/ports/dataBases.ports';
 const createExampleSchema = {
   environment_type_id: 1,
   portfolio_type_id: 1,
-  campaing_type_id: 1,
   bases: ['dev_db_1', 'dev_db_2', 'dev_db_3'],
-  detail: 'Bases de datos para entorno dev, cartera Propias, campaña Claro',
+  detail: 'Bases de datos para entorno dev, cartera Propias',
   state_type_id: 1,
   responsible: 'BOT demands online',
 };
@@ -22,9 +21,8 @@ const createExampleSchema = {
 const updateExampleSchema = {
   environment_type_id: 1,
   portfolio_type_id: 1,
-  campaing_type_id: 1,
   bases: ['dev_db_1', 'dev_db_2'],
-  detail: 'Bases de datos para entorno dev, cartera Propias, campaña Claro',
+  detail: 'Bases de datos para entorno dev, cartera Propias',
   state_type_id: 1,
   responsible: 'BOT demands online',
 };
@@ -52,18 +50,16 @@ export class DataBasesController {
     return this.dataBasesService.findAll();
   }
 
-  // Obtener registros por combinación entorno/cartera/campaña (ruta fija antes de :id)
-  @Get('byEnvAndPortfAndCamp')
-  @ApiOperation({ summary: 'Obtener registros de bases por combinación entorno/cartera/campaña' })
-  async findByEnvAndPortfAndCamp(
+  // Obtener registros por combinación entorno/cartera (ruta fija antes de :id)
+  @Get('byEnvAndPortf')
+  @ApiOperation({ summary: 'Obtener registros de bases por combinación entorno/cartera' })
+  async findByEnvAndPortf(
     @Query('environment_type_id') environment_type_id: number,
     @Query('portfolio_type_id') portfolio_type_id: number,
-    @Query('campaing_type_id') campaing_type_id: number,
   ): Promise<DataBasesDto[]> {
-    return this.dataBasesService.findByEnvAndPortfAndCamp(
+    return this.dataBasesService.findByEnvAndPortf(
       Number(environment_type_id),
       Number(portfolio_type_id),
-      Number(campaing_type_id),
     );
   }
 

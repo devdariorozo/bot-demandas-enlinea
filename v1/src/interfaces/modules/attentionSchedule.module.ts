@@ -6,7 +6,6 @@ import { AttentionScheduleService } from '@application/services/attentionSchedul
 import { AttentionScheduleRepositoryImpl } from '@infrastructure/persistence/repositories/attentionSchedule.repositories';
 import { ATTENTION_SCHEDULE_REPOSITORY } from '@domain/ports/attentionSchedule.ports';
 import { PortfolioTypeModule } from './portfolioType.module';
-import { CampaingTypeModule } from './campaingType.module';
 import { StateTypeModule } from './stateType.module';
 
 @Module({
@@ -18,7 +17,7 @@ import { StateTypeModule } from './stateType.module';
       useClass: AttentionScheduleRepositoryImpl,
     },
   ],
-  imports: [PortfolioTypeModule, CampaingTypeModule, StateTypeModule],
+  imports: [PortfolioTypeModule, StateTypeModule],
   exports: [
     AttentionScheduleService,
     { provide: ATTENTION_SCHEDULE_REPOSITORY, useClass: AttentionScheduleRepositoryImpl },

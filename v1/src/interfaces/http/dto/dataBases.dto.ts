@@ -19,10 +19,14 @@ export class DataBasesDto {
   @IsNotEmpty()
   portfolio_type_id: number;
 
-  @ApiProperty({ example: 1, description: 'ID del tipo de campaña (campaing_type)' })
-  @IsNumber()
-  @IsNotEmpty()
-  campaing_type_id: number;
+  @ApiPropertyOptional({
+    example: 'Sudameris docker',
+    description:
+      'Solo en respuestas de listado: "portfolio_type_name environment_type_name". Si environment es "pro", solo portfolio_type_name.',
+  })
+  @IsString()
+  @IsOptional()
+  label_data_base?: string;
 
   @ApiProperty({
     example: ['dev_db_1', 'dev_db_2'],
@@ -36,7 +40,7 @@ export class DataBasesDto {
   bases: string[];
 
   @ApiProperty({
-    example: 'Bases de datos para entorno dev, cartera Propias, campaña Claro',
+    example: 'Bases de datos para entorno dev, cartera Propias',
     description: 'Descripción del grupo de bases',
   })
   @IsString()
@@ -76,11 +80,6 @@ export class UpdateDataBasesDto {
   @IsNotEmpty()
   portfolio_type_id: number;
 
-  @ApiProperty({ example: 1, description: 'ID del tipo de campaña (campaing_type)' })
-  @IsNumber()
-  @IsNotEmpty()
-  campaing_type_id: number;
-
   @ApiProperty({
     example: ['dev_db_1', 'dev_db_2'],
     description: 'Listado de bases de datos asociadas (puede ser 1 o muchas)',
@@ -93,7 +92,7 @@ export class UpdateDataBasesDto {
   bases: string[];
 
   @ApiProperty({
-    example: 'Bases de datos para entorno dev, cartera Propias, campaña Claro',
+    example: 'Bases de datos para entorno dev, cartera Propias',
     description: 'Descripción del grupo de bases',
   })
   @IsString()
@@ -120,4 +119,5 @@ export class UpdateDataBasesDto {
   @IsNotEmpty()
   responsible: string;
 }
+
 

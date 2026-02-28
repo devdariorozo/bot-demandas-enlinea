@@ -6,10 +6,13 @@ import { DataSource, Repository } from 'typeorm';
 
 import { DataBases } from '@domain/entities/dataBases.entities';
 import { DataBasesEntity } from '../entities/dataBases.entities';
-import { DataBasesRepository, CreateDataBasesInput } from '@domain/ports/dataBases.ports';
+import {
+  DataBasesRepository,
+  CreateDataBasesInput,
+  VCitiesRow,
+} from '@domain/ports/dataBases.ports';
 import { EnvironmentTypeEntity } from '../entities/environmentType.entities';
 import { PortfolioTypeEntity } from '../entities/portfolioType.entities';
-import { CampaingTypeEntity } from '../entities/campaingType.entities';
 import { StateTypeEntity } from '../entities/stateType.entities';
 
 @Injectable()
@@ -26,7 +29,6 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
     const entity: Partial<DataBasesEntity> = {
       environment_type_id: input.environment_type_id,
       portfolio_type_id: input.portfolio_type_id,
-      campaing_type_id: input.campaing_type_id,
       bases: input.bases,
       detail: input.detail,
       state_type_id: input.state_type_id,
@@ -44,13 +46,11 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
       .createQueryBuilder('db')
       .leftJoin(EnvironmentTypeEntity, 'env', 'env.id = db.environment_type_id')
       .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = db.portfolio_type_id')
-      .leftJoin(CampaingTypeEntity, 'cp', 'cp.id = db.campaing_type_id')
       .leftJoin(StateTypeEntity, 'st', 'st.id = db.state_type_id')
       .select([
         'db.id',
         'db.environment_type_id',
         'db.portfolio_type_id',
-        'db.campaing_type_id',
         'db.bases',
         'db.detail',
         'db.state_type_id',
@@ -60,7 +60,6 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
       ])
       .addSelect('env.type', 'environment_type_name')
       .addSelect('pf.type', 'portfolio_type_name')
-      .addSelect('cp.type', 'campaing_type_name')
       .addSelect('st.type', 'state_type_name')
       .getRawMany();
 
@@ -70,8 +69,6 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
       environment_type_name: (row.environment_type_name as string) ?? '',
       portfolio_type_id: row.db_portfolio_type_id as number,
       portfolio_type_name: (row.portfolio_type_name as string) ?? '',
-      campaing_type_id: row.db_campaing_type_id as number,
-      campaing_type_name: (row.campaing_type_name as string) ?? '',
       bases: row.db_bases as string[],
       detail: row.db_detail as string,
       state_type_id: row.db_state_type_id as number,
@@ -100,6 +97,22 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
   // Eliminar un registro de bases
   async delete(id: number): Promise<void> {
     await this.repo.delete(id);
+  }
+
+  /** Consultar la vista v_cities en la primera base del registro data_bases (posición 0). */
+  async fetchVCitiesFromFirstBase(idDataBases: number): Promise<VCitiesRow[]> {
+    const record = await this.findById(idDataBases);
+    if (!record.bases || !Array.isArray(record.bases) || record.bases.length === 0) {
+      throw new Error('No bases configured for this data_bases record');
+    }
+    const firstBase = record.bases[0];
+    // Solo permitir nombres de BD alfanuméricos y guión bajo para evitar inyección
+    if (!/^[a-zA-Z0-9_]+$/.test(firstBase)) {
+      throw new Error('Invalid database name');
+    }
+    const sql = `SELECT id, city_name, department, city FROM \`${firstBase}\`.v_cities`;
+    const rows = await this.repo.manager.query(sql);
+    return rows as VCitiesRow[];
   }
 }
 

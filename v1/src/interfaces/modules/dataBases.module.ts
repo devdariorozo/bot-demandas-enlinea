@@ -8,7 +8,6 @@ import { DATABASES_REPOSITORY } from '@domain/ports/dataBases.ports';
 import { EnvironmentTypeModule } from './environmentType.module';
 import { StateTypeModule } from './stateType.module';
 import { PortfolioTypeModule } from './portfolioType.module';
-import { CampaingTypeModule } from './campaingType.module';
 
 @Module({
   controllers: [DataBasesController],
@@ -19,7 +18,7 @@ import { CampaingTypeModule } from './campaingType.module';
       useClass: DataBasesRepositoryImpl,
     },
   ],
-  imports: [EnvironmentTypeModule, StateTypeModule, PortfolioTypeModule, CampaingTypeModule],
+  imports: [EnvironmentTypeModule, StateTypeModule, PortfolioTypeModule],
   exports: [
     DataBasesService,
     { provide: DATABASES_REPOSITORY, useClass: DataBasesRepositoryImpl },

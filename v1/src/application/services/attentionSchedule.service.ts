@@ -15,12 +15,18 @@ import {
   CreateAttentionScheduleInput,
 } from '@domain/ports/attentionSchedule.ports';
 import { PORTFOLIO_TYPE_REPOSITORY, PortfolioTypeRepository } from '@domain/ports/portfolioType.ports';
-import { CAMPaING_TYPE_REPOSITORY, CampaingTypeRepository } from '@domain/ports/campaingType.ports';
 import { STATE_TYPE_REPOSITORY, StateTypeRepository } from '@domain/ports/stateType.ports';
 import { PortfolioTypeId } from '@domain/value-objects/portfolioType.valueobjects';
-import { CampaingTypeId } from '@domain/value-objects/campaingType.valueobjects';
 import { StateTypeId } from '@domain/value-objects/stateType.valueobjects';
+import {
+  DayOfWeek,
+  DAYS_OF_WEEK_ES,
+} from '@domain/value-objects/attentionSchedule.valueobjects';
 import { capitalizeFirstWord } from '@application/utils/string.utils';
+import { QueryFailedError } from 'typeorm';
+
+const DUPLICATE_SCHEDULE_MSG =
+  'Attention schedule already exists for this portfolio_type_id, start_time and end_time';
 
 function timeToMinutes(time: string): number {
   const [h, m] = time.split(':').map(Number);
@@ -34,33 +40,41 @@ export class AttentionScheduleService {
     private readonly attentionScheduleRepository: AttentionScheduleRepository,
     @Inject(PORTFOLIO_TYPE_REPOSITORY)
     private readonly portfolioTypeRepository: PortfolioTypeRepository,
-    @Inject(CAMPaING_TYPE_REPOSITORY)
-    private readonly campaingTypeRepository: CampaingTypeRepository,
     @Inject(STATE_TYPE_REPOSITORY)
     private readonly stateTypeRepository: StateTypeRepository,
   ) {}
 
-  // Crear un nuevo horario de atención
+  /** Crea un solo registro con days como array de días en español. */
   async create(input: CreateAttentionScheduleInput): Promise<AttentionSchedule> {
-    // Validar IDs positivos
     try {
       PortfolioTypeId.create(input.portfolio_type_id);
-      CampaingTypeId.create(input.campaing_type_id);
       StateTypeId.create(input.state_type_id);
     } catch {
-      throw new BadRequestException('All foreign keys must be positive integers');
+      throw new BadRequestException('portfolio_type_id and state_type_id must be positive integers');
     }
+    if (!input.days?.length) {
+      throw new BadRequestException('days must be a non-empty array');
+    }
+    const daysSet = new Set<string>();
+    for (const d of input.days) {
+      try {
+        const vo = DayOfWeek.create(d);
+        daysSet.add(vo.value);
+      } catch {
+        throw new BadRequestException(
+          `Each day must be one of: ${DAYS_OF_WEEK_ES.join(', ')}`,
+        );
+      }
+    }
+    const daysArray = Array.from(daysSet);
 
-    // Validar existencia en BD
     try {
       await this.portfolioTypeRepository.findById(input.portfolio_type_id);
-      await this.campaingTypeRepository.findById(input.campaing_type_id);
       await this.stateTypeRepository.findById(input.state_type_id);
     } catch {
       throw new NotFoundException('One or more related records not found');
     }
 
-    // Validar formato y rango de horas
     const start = timeToMinutes(input.start_time);
     const end = timeToMinutes(input.end_time);
     if (Number.isNaN(start) || Number.isNaN(end)) {
@@ -70,32 +84,41 @@ export class AttentionScheduleService {
       throw new BadRequestException('start_time must be before end_time');
     }
 
-    // Validar solapamiento: para misma cartera/campaña/día
-    const existingForDay = await this.attentionScheduleRepository.findByPortfolioCampaingAndDay(
-      input.portfolio_type_id,
-      input.campaing_type_id,
-      input.day_of_week,
+    const existing = await this.attentionScheduleRepository.findByPortfolio(input.portfolio_type_id);
+    const duplicate = existing.some(
+      (s) =>
+        s.start_time === input.start_time &&
+        s.end_time === input.end_time,
     );
-
-    const overlaps = existingForDay.some((schedule) => {
-      const s = timeToMinutes(schedule.start_time);
-      const e = timeToMinutes(schedule.end_time);
-      return start < e && end > s;
-    });
-
-    if (overlaps) {
-      throw new ConflictException('Schedule overlaps with existing range for this portfolio/campaing/day');
+    if (duplicate) {
+      throw new ConflictException(DUPLICATE_SCHEDULE_MSG);
     }
 
-    const normalizedInput = { ...input, detail: capitalizeFirstWord(input.detail) };
+    const normalizedDetail = capitalizeFirstWord(input.detail);
+    const toCreate: CreateAttentionScheduleInput = {
+      portfolio_type_id: input.portfolio_type_id,
+      days: daysArray,
+      start_time: input.start_time,
+      end_time: input.end_time,
+      detail: normalizedDetail,
+      state_type_id: input.state_type_id,
+      responsible: input.responsible,
+    };
     try {
-      return await this.attentionScheduleRepository.create(normalizedInput);
-    } catch (error) {
-      throw new InternalServerErrorException('Error creating attention schedule');
+      return await this.attentionScheduleRepository.create(toCreate);
+    } catch (err) {
+      const isDuplicate =
+        err instanceof QueryFailedError &&
+        ((err as QueryFailedError & { code?: string; driverError?: { code?: string } }).code === 'ER_DUP_ENTRY' ||
+          (err as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === 'ER_DUP_ENTRY' ||
+          (err as Error).message?.includes('Duplicate entry'));
+      if (isDuplicate) {
+        throw new ConflictException(DUPLICATE_SCHEDULE_MSG);
+      }
+      throw err;
     }
   }
 
-  // Obtener todos los horarios de atención
   async findAll(): Promise<AttentionSchedule[]> {
     try {
       return await this.attentionScheduleRepository.findAll();
@@ -104,24 +127,18 @@ export class AttentionScheduleService {
     }
   }
 
-  // Obtener un horario de atención por su id
   async findById(id: number): Promise<AttentionSchedule> {
     try {
       const sc = await this.attentionScheduleRepository.findById(id);
-      const [portfolio, campaing, state] = await Promise.all([
+      const [portfolio, state] = await Promise.all([
         this.portfolioTypeRepository.findById(sc.portfolio_type_id),
-        this.campaingTypeRepository.findById(sc.campaing_type_id),
         this.stateTypeRepository.findById(sc.state_type_id),
       ]);
-
       return {
         id: sc.id,
         portfolio_type_id: sc.portfolio_type_id,
         portfolio_type_name: portfolio.type,
-        campaing_type_id: sc.campaing_type_id,
-        campaing_type_name: campaing.type,
-        day_of_week: sc.day_of_week,
-        shiftType: sc.shiftType,
+        days: sc.days,
         start_time: sc.start_time,
         end_time: sc.end_time,
         detail: sc.detail,
@@ -136,23 +153,44 @@ export class AttentionScheduleService {
     }
   }
 
-  // Obtener horarios por combinación cartera/campaña (todos los días)
-  async findByPortfolioAndCampaing(portfolio_type_id: number, campaing_type_id: number): Promise<AttentionSchedule[]> {
-    const all = await this.attentionScheduleRepository.findAll();
-    return all.filter(
-      (sc) => sc.portfolio_type_id === portfolio_type_id && sc.campaing_type_id === campaing_type_id,
-    );
+  async findByPortfolio(portfolio_type_id: number, days?: string): Promise<AttentionSchedule[]> {
+    if (days !== undefined) {
+      try {
+        DayOfWeek.create(days);
+      } catch {
+        throw new BadRequestException(
+          `days must be one of: ${DAYS_OF_WEEK_ES.join(', ')}`,
+        );
+      }
+    }
+    try {
+      await this.portfolioTypeRepository.findById(portfolio_type_id);
+    } catch {
+      throw new NotFoundException('No data found for the given portfolio_type_id');
+    }
+    return this.attentionScheduleRepository.findByPortfolio(portfolio_type_id, days);
   }
 
-  // Actualizar un horario de atención
   async update(input: AttentionSchedule): Promise<AttentionSchedule> {
-    // Validar IDs positivos
     try {
       PortfolioTypeId.create(input.portfolio_type_id);
-      CampaingTypeId.create(input.campaing_type_id);
       StateTypeId.create(input.state_type_id);
-    } catch {
-      throw new BadRequestException('All foreign keys must be positive integers');
+    } catch (e) {
+      throw new BadRequestException(
+        e instanceof Error ? e.message : 'Invalid portfolio_type_id or state_type_id',
+      );
+    }
+    if (!Array.isArray(input.days) || !input.days.length) {
+      throw new BadRequestException('days must be a non-empty array');
+    }
+    for (const d of input.days) {
+      try {
+        DayOfWeek.create(d);
+      } catch {
+        throw new BadRequestException(
+          `Each day must be one of: ${DAYS_OF_WEEK_ES.join(', ')}`,
+        );
+      }
     }
 
     let existing: AttentionSchedule;
@@ -171,48 +209,45 @@ export class AttentionScheduleService {
       throw new BadRequestException('start_time must be before end_time');
     }
 
-    // Validar solapamiento excluyendo el propio registro
-    const existingForDay = await this.attentionScheduleRepository.findByPortfolioCampaingAndDay(
-      input.portfolio_type_id,
-      input.campaing_type_id,
-      input.day_of_week,
-    );
-
-    const overlaps = existingForDay
+    const others = await this.attentionScheduleRepository.findByPortfolio(input.portfolio_type_id);
+    const duplicate = others
       .filter((sc) => sc.id !== input.id)
-      .some((schedule) => {
-        const s = timeToMinutes(schedule.start_time);
-        const e = timeToMinutes(schedule.end_time);
-        return start < e && end > s;
-      });
-
-    if (overlaps) {
-      throw new ConflictException('Schedule overlaps with existing range for this portfolio/campaing/day');
+      .some(
+        (s) =>
+          s.start_time === input.start_time && s.end_time === input.end_time,
+      );
+    if (duplicate) {
+      throw new ConflictException(DUPLICATE_SCHEDULE_MSG);
     }
 
-    const normalizedInput = { ...input, detail: capitalizeFirstWord(input.detail) };
+    const normalized = { ...input, detail: capitalizeFirstWord(input.detail) };
+    const sameDays =
+      Array.isArray(existing.days) &&
+      Array.isArray(normalized.days) &&
+      existing.days.length === normalized.days.length &&
+      existing.days.every((d, i) => d === normalized.days[i]);
+    const sameStartTime = timeToMinutes(existing.start_time) === timeToMinutes(normalized.start_time);
+    const sameEndTime = timeToMinutes(existing.end_time) === timeToMinutes(normalized.end_time);
     const hasChanges =
-      existing.portfolio_type_id !== normalizedInput.portfolio_type_id ||
-      existing.campaing_type_id !== normalizedInput.campaing_type_id ||
-      existing.day_of_week !== normalizedInput.day_of_week ||
-      existing.shiftType !== normalizedInput.shiftType ||
-      existing.start_time !== normalizedInput.start_time ||
-      existing.end_time !== normalizedInput.end_time ||
-      existing.detail !== normalizedInput.detail ||
-      existing.state_type_id !== normalizedInput.state_type_id ||
-      existing.responsible !== normalizedInput.responsible;
+      existing.portfolio_type_id !== normalized.portfolio_type_id ||
+      !sameDays ||
+      !sameStartTime ||
+      !sameEndTime ||
+      existing.detail !== normalized.detail ||
+      existing.state_type_id !== normalized.state_type_id ||
+      existing.responsible !== normalized.responsible;
 
     if (!hasChanges) {
       throw new BadRequestException('No changes to update');
     }
     try {
-      return await this.attentionScheduleRepository.update(normalizedInput);
+      await this.attentionScheduleRepository.update(normalized);
+      return this.findById(input.id);
     } catch (error) {
       throw new InternalServerErrorException('Error updating attention schedule');
     }
   }
 
-  // Eliminar un horario de atención
   async delete(id: number): Promise<void> {
     try {
       await this.attentionScheduleRepository.findById(id);
@@ -226,4 +261,3 @@ export class AttentionScheduleService {
     }
   }
 }
-

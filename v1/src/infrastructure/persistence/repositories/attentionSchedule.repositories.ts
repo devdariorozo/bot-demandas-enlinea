@@ -11,7 +11,6 @@ import {
 } from '@domain/ports/attentionSchedule.ports';
 import { AttentionScheduleEntity } from '../entities/attentionSchedule.entities';
 import { PortfolioTypeEntity } from '../entities/portfolioType.entities';
-import { CampaingTypeEntity } from '../entities/campaingType.entities';
 import { StateTypeEntity } from '../entities/stateType.entities';
 
 @Injectable()
@@ -22,14 +21,11 @@ export class AttentionScheduleRepositoryImpl implements AttentionScheduleReposit
     this.repo = dataSource.getRepository(AttentionScheduleEntity);
   }
 
-  // Crear un nuevo horario
   async create(input: CreateAttentionScheduleInput): Promise<AttentionSchedule> {
     const now = new Date();
     const entity: Partial<AttentionScheduleEntity> = {
       portfolio_type_id: input.portfolio_type_id,
-      campaing_type_id: input.campaing_type_id,
-      day_of_week: input.day_of_week,
-      shiftType: input.shiftType,
+      days: input.days,
       start_time: input.start_time,
       end_time: input.end_time,
       detail: input.detail,
@@ -39,22 +35,34 @@ export class AttentionScheduleRepositoryImpl implements AttentionScheduleReposit
       responsible: input.responsible,
     };
     const saved = await this.repo.save(entity as AttentionScheduleEntity);
-    return saved;
+    return this.toDomain(saved);
   }
 
-  // Obtener todos los horarios (con nombres vía JOIN)
+  private toDomain(entity: AttentionScheduleEntity): AttentionSchedule {
+    const days = Array.isArray(entity.days) ? entity.days : JSON.parse(String(entity.days ?? '[]'));
+    return {
+      id: entity.id,
+      portfolio_type_id: entity.portfolio_type_id,
+      days,
+      start_time: entity.start_time,
+      end_time: entity.end_time,
+      detail: entity.detail,
+      state_type_id: entity.state_type_id,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      responsible: entity.responsible,
+    };
+  }
+
   async findAll(): Promise<AttentionSchedule[]> {
     const raw = await this.repo
       .createQueryBuilder('sc')
       .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = sc.portfolio_type_id')
-      .leftJoin(CampaingTypeEntity, 'cp', 'cp.id = sc.campaing_type_id')
       .leftJoin(StateTypeEntity, 'st', 'st.id = sc.state_type_id')
       .select([
         'sc.id',
         'sc.portfolio_type_id',
-        'sc.campaing_type_id',
-        'sc.day_of_week',
-        'sc.shift_type',
+        'sc.days',
         'sc.start_time',
         'sc.end_time',
         'sc.detail',
@@ -64,53 +72,100 @@ export class AttentionScheduleRepositoryImpl implements AttentionScheduleReposit
         'sc.responsible',
       ])
       .addSelect('pf.type', 'portfolio_type_name')
-      .addSelect('cp.type', 'campaing_type_name')
       .addSelect('st.type', 'state_type_name')
       .getRawMany();
 
-    return raw.map((row: Record<string, unknown>) => ({
-      id: row.sc_id as number,
-      portfolio_type_id: row.sc_portfolio_type_id as number,
-      portfolio_type_name: (row.portfolio_type_name as string) ?? '',
-      campaing_type_id: row.sc_campaing_type_id as number,
-      campaing_type_name: (row.campaing_type_name as string) ?? '',
-      day_of_week: row.sc_day_of_week as string,
-      shiftType: row.sc_shift_type as string,
-      start_time: row.sc_start_time as string,
-      end_time: row.sc_end_time as string,
-      detail: row.sc_detail as string,
-      state_type_id: row.sc_state_type_id as number,
-      state_type_name: (row.state_type_name as string) ?? '',
-      created_at: row.sc_created_at as Date,
-      updated_at: row.sc_updated_at as Date,
-      responsible: row.sc_responsible as string,
-    }));
+    return raw.map((row: Record<string, unknown>) => {
+      const daysRaw = row.sc_days;
+      const days = typeof daysRaw === 'string' ? JSON.parse(daysRaw) : (daysRaw as string[]);
+      return {
+        id: row.sc_id as number,
+        portfolio_type_id: row.sc_portfolio_type_id as number,
+        portfolio_type_name: (row.portfolio_type_name as string) ?? '',
+        days: Array.isArray(days) ? days : [],
+        start_time: row.sc_start_time as string,
+        end_time: row.sc_end_time as string,
+        detail: row.sc_detail as string,
+        state_type_id: row.sc_state_type_id as number,
+        state_type_name: (row.state_type_name as string) ?? '',
+        created_at: row.sc_created_at as Date,
+        updated_at: row.sc_updated_at as Date,
+        responsible: row.sc_responsible as string,
+      };
+    });
   }
 
-  // Obtener un horario por su id
   async findById(id: number): Promise<AttentionSchedule> {
     const entity = await this.repo.findOneBy({ id });
     if (!entity) {
       throw new Error('Attention schedule not found');
     }
-    return entity;
+    return this.toDomain(entity);
   }
 
-  // Obtener todos los horarios para una combinación cartera/campaña y día
-  async findByPortfolioCampaingAndDay(
-    portfolio_type_id: number,
-    campaing_type_id: number,
-    day_of_week: string,
-  ): Promise<AttentionSchedule[]> {
-    return this.repo.find({
-      where: { portfolio_type_id, campaing_type_id, day_of_week },
+  async findByPortfolio(portfolio_type_id: number, day?: string): Promise<AttentionSchedule[]> {
+    const qb = this.repo
+      .createQueryBuilder('sc')
+      .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = sc.portfolio_type_id')
+      .leftJoin(StateTypeEntity, 'st', 'st.id = sc.state_type_id')
+      .select([
+        'sc.id',
+        'sc.portfolio_type_id',
+        'sc.days',
+        'sc.start_time',
+        'sc.end_time',
+        'sc.detail',
+        'sc.state_type_id',
+        'sc.created_at',
+        'sc.updated_at',
+        'sc.responsible',
+      ])
+      .addSelect('pf.type', 'portfolio_type_name')
+      .addSelect('st.type', 'state_type_name')
+      .where('sc.portfolio_type_id = :portfolio_type_id', { portfolio_type_id });
+
+    if (day !== undefined) {
+      qb.andWhere('JSON_CONTAINS(sc.days, :dayVal, \'$\')', {
+        dayVal: JSON.stringify(day),
+      });
+    }
+
+    const raw = await qb.getRawMany();
+    return raw.map((row: Record<string, unknown>) => {
+      const daysRaw = row.sc_days;
+      const days = typeof daysRaw === 'string' ? JSON.parse(daysRaw) : (daysRaw as string[]);
+      return {
+        id: row.sc_id as number,
+        portfolio_type_id: row.sc_portfolio_type_id as number,
+        portfolio_type_name: (row.portfolio_type_name as string) ?? '',
+        days: Array.isArray(days) ? days : [],
+        start_time: row.sc_start_time as string,
+        end_time: row.sc_end_time as string,
+        detail: row.sc_detail as string,
+        state_type_id: row.sc_state_type_id as number,
+        state_type_name: (row.state_type_name as string) ?? '',
+        created_at: row.sc_created_at as Date,
+        updated_at: row.sc_updated_at as Date,
+        responsible: row.sc_responsible as string,
+      };
     });
   }
 
-  // Actualizar un horario
   async update(attentionSchedule: AttentionSchedule): Promise<AttentionSchedule> {
-    const saved = await this.repo.save(attentionSchedule as AttentionScheduleEntity);
-    return saved;
+    const entity: AttentionScheduleEntity = {
+      id: attentionSchedule.id,
+      portfolio_type_id: attentionSchedule.portfolio_type_id,
+      days: attentionSchedule.days,
+      start_time: attentionSchedule.start_time,
+      end_time: attentionSchedule.end_time,
+      detail: attentionSchedule.detail,
+      state_type_id: attentionSchedule.state_type_id,
+      created_at: attentionSchedule.created_at,
+      updated_at: attentionSchedule.updated_at,
+      responsible: attentionSchedule.responsible,
+    };
+    const saved = await this.repo.save(entity);
+    return this.toDomain(saved);
   }
 
   // Eliminar un horario

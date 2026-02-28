@@ -5,13 +5,18 @@ import { DataBases } from '@domain/entities/dataBases.entities';
 import { CreateDataBasesInput, DataBasesRepository, DATABASES_REPOSITORY } from '@domain/ports/dataBases.ports';
 import { ENVIRONMENT_TYPE_REPOSITORY, EnvironmentTypeRepository } from '@domain/ports/environmentType.ports';
 import { PORTFOLIO_TYPE_REPOSITORY, PortfolioTypeRepository } from '@domain/ports/portfolioType.ports';
-import { CAMPaING_TYPE_REPOSITORY, CampaingTypeRepository } from '@domain/ports/campaingType.ports';
 import { STATE_TYPE_REPOSITORY, StateTypeRepository } from '@domain/ports/stateType.ports';
 import { EnvironmentTypeId } from '@domain/value-objects/environmentType.valueobjects';
 import { PortfolioTypeId } from '@domain/value-objects/portfolioType.valueobjects';
-import { CampaingTypeId } from '@domain/value-objects/campaingType.valueobjects';
 import { StateTypeId } from '@domain/value-objects/stateType.valueobjects';
 import { capitalizeFirstWord } from '@application/utils/string.utils';
+
+/** Construye label_data_base: si environment es "pro" solo portfolio, sino "portfolio environment". */
+function buildLabelDataBase(portfolioTypeName: string, environmentTypeName: string): string {
+  const env = (environmentTypeName || '').trim().toLowerCase();
+  if (env === 'pro') return portfolioTypeName;
+  return `${portfolioTypeName} ${environmentTypeName}`.trim();
+}
 
 @Injectable()
 export class DataBasesService {
@@ -22,8 +27,6 @@ export class DataBasesService {
     private readonly environmentTypeRepository: EnvironmentTypeRepository,
     @Inject(PORTFOLIO_TYPE_REPOSITORY)
     private readonly portfolioTypeRepository: PortfolioTypeRepository,
-    @Inject(CAMPaING_TYPE_REPOSITORY)
-    private readonly campaingTypeRepository: CampaingTypeRepository,
     @Inject(STATE_TYPE_REPOSITORY)
     private readonly stateTypeRepository: StateTypeRepository,
   ) {}
@@ -34,7 +37,6 @@ export class DataBasesService {
     try {
       EnvironmentTypeId.create(input.environment_type_id);
       PortfolioTypeId.create(input.portfolio_type_id);
-      CampaingTypeId.create(input.campaing_type_id);
       StateTypeId.create(input.state_type_id);
     } catch {
       throw new BadRequestException('All foreign keys must be positive integers');
@@ -44,7 +46,6 @@ export class DataBasesService {
     try {
       await this.environmentTypeRepository.findById(input.environment_type_id);
       await this.portfolioTypeRepository.findById(input.portfolio_type_id);
-      await this.campaingTypeRepository.findById(input.campaing_type_id);
       await this.stateTypeRepository.findById(input.state_type_id);
     } catch {
       throw new NotFoundException('One or more related records not found');
@@ -55,15 +56,14 @@ export class DataBasesService {
       throw new BadRequestException('At least one base must be provided');
     }
 
-    // Opcional: evitar duplicados por combinación environment/portfolio/campaing
+    // Evitar duplicados por combinación environment/portfolio
     const existing = (await this.dataBasesRepository.findAll()).find(
       (db) =>
         db.environment_type_id === input.environment_type_id &&
-        db.portfolio_type_id === input.portfolio_type_id &&
-        db.campaing_type_id === input.campaing_type_id,
+        db.portfolio_type_id === input.portfolio_type_id,
     );
     if (existing) {
-      throw new ConflictException('DataBases record for this environment/portfolio/campaing already exists');
+      throw new ConflictException('DataBases record for this environment/portfolio already exists');
     }
 
     const normalizedInput = { ...input, detail: capitalizeFirstWord(input.detail) };
@@ -74,31 +74,60 @@ export class DataBasesService {
     }
   }
 
-  // Obtener todos los registros de bases
+  // Obtener todos los registros de bases (enriquecidos con _name y label_data_base)
   async findAll(): Promise<DataBases[]> {
     try {
-      return await this.dataBasesRepository.findAll();
+      const [dbs, envTypes, portfolioTypes, stateTypes] = await Promise.all([
+        this.dataBasesRepository.findAll(),
+        this.environmentTypeRepository.findAll(),
+        this.portfolioTypeRepository.findAll(),
+        this.stateTypeRepository.findAll(),
+      ]);
+      const envMap = new Map(envTypes.map((e) => [e.id, e]));
+      const portfolioMap = new Map(portfolioTypes.map((p) => [p.id, p]));
+      const stateMap = new Map(stateTypes.map((s) => [s.id, s]));
+      return dbs.map((db) => {
+        const env = envMap.get(db.environment_type_id);
+        const portfolio = portfolioMap.get(db.portfolio_type_id);
+        const state = stateMap.get(db.state_type_id);
+        const envType = env?.type ?? '';
+        const portfolioType = portfolio?.type ?? '';
+        const stateType = state?.type ?? '';
+        return {
+          id: db.id,
+          environment_type_id: db.environment_type_id,
+          environment_type_name: envType,
+          portfolio_type_id: db.portfolio_type_id,
+          portfolio_type_name: portfolioType,
+          label_data_base: buildLabelDataBase(portfolioType, envType),
+          bases: db.bases,
+          detail: db.detail,
+          state_type_id: db.state_type_id,
+          state_type_name: stateType,
+          created_at: db.created_at,
+          updated_at: db.updated_at,
+          responsible: db.responsible,
+        };
+      });
     } catch (error) {
       throw new InternalServerErrorException('Error getting all dataBases records');
     }
   }
 
-  // Obtener registros de bases por combinación entorno/cartera/campaña
-  async findByEnvAndPortfAndCamp(
+  // Obtener registros de bases por combinación entorno/cartera (enriquecidos con _name y label_data_base)
+  async findByEnvAndPortf(
     environment_type_id: number,
     portfolio_type_id: number,
-    campaing_type_id: number,
   ): Promise<DataBases[]> {
     try {
-      const all = await this.dataBasesRepository.findAll();
+      const all = await this.findAll();
       return all.filter(
         (db) =>
           db.environment_type_id === environment_type_id &&
-          db.portfolio_type_id === portfolio_type_id &&
-          db.campaing_type_id === campaing_type_id,
+          db.portfolio_type_id === portfolio_type_id,
       );
     } catch (error) {
-      throw new InternalServerErrorException('Error getting dataBases by environment, portfolio and campaing');
+      throw new InternalServerErrorException('Error getting dataBases by environment and portfolio');
     }
   }
 
@@ -106,10 +135,9 @@ export class DataBasesService {
   async findById(id: number): Promise<DataBases> {
     try {
       const db = await this.dataBasesRepository.findById(id);
-      const [env, portfolio, campaing, state] = await Promise.all([
+      const [env, portfolio, state] = await Promise.all([
         this.environmentTypeRepository.findById(db.environment_type_id),
         this.portfolioTypeRepository.findById(db.portfolio_type_id),
-        this.campaingTypeRepository.findById(db.campaing_type_id),
         this.stateTypeRepository.findById(db.state_type_id),
       ]);
 
@@ -119,8 +147,7 @@ export class DataBasesService {
         environment_type_name: env.type,
         portfolio_type_id: db.portfolio_type_id,
         portfolio_type_name: portfolio.type,
-        campaing_type_id: db.campaing_type_id,
-        campaing_type_name: campaing.type,
+        label_data_base: buildLabelDataBase(portfolio.type, env.type),
         bases: db.bases,
         detail: db.detail,
         state_type_id: db.state_type_id,
@@ -140,7 +167,6 @@ export class DataBasesService {
     try {
       EnvironmentTypeId.create(dataBases.environment_type_id);
       PortfolioTypeId.create(dataBases.portfolio_type_id);
-      CampaingTypeId.create(dataBases.campaing_type_id);
       StateTypeId.create(dataBases.state_type_id);
     } catch {
       throw new BadRequestException('All foreign keys must be positive integers');
@@ -157,7 +183,6 @@ export class DataBasesService {
     const hasChanges =
       existing.environment_type_id !== normalized.environment_type_id ||
       existing.portfolio_type_id !== normalized.portfolio_type_id ||
-      existing.campaing_type_id !== normalized.campaing_type_id ||
       existing.state_type_id !== normalized.state_type_id ||
       existing.detail !== normalized.detail ||
       existing.responsible !== normalized.responsible ||

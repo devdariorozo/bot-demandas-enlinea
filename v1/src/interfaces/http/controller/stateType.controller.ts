@@ -9,14 +9,14 @@ import { StateType } from '@domain/entities/stateType.entities';
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
     type: 'Active',
-    detail: 'Active registered',
+    detail: 'Registro activo',
     responsible: 'BOT demands online',
 };
 
 /** Ejemplo JSON para actualizar. El id va solo en la URL (path), no en el body. */
 const updateExampleSchema = {
     type: 'Active',
-    detail: 'Active registered',
+    detail: 'Registro activo',
     responsible: 'BOT demands online',
 };
 

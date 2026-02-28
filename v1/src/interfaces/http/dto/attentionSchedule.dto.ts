@@ -1,14 +1,68 @@
 // Responsabilidad: modelos de datos de entrada/salida para HTTP.
+// Días de la semana en español: Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo.
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsDate, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
+import { IsArray, IsDate, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
 
-const DAYS_OF_WEEK = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
-const SHIFT_TYPES = ['continua', 'partida'];
+export const DAYS_OF_WEEK_ES = [
+  'Lunes',
+  'Martes',
+  'Miércoles',
+  'Jueves',
+  'Viernes',
+  'Sábado',
+  'Domingo',
+] as const;
+
 const TIME_24H_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** Body para POST: un solo registro con days como array de días en español. */
+export class CreateAttentionScheduleDto {
+  @ApiProperty({ example: 1, description: 'ID del tipo de cartera (portfolio_type)' })
+  @IsNumber()
+  @IsNotEmpty()
+  portfolio_type_id: number;
+
+  @ApiProperty({
+    example: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Días laborales en español (un registro por día)',
+    enum: DAYS_OF_WEEK_ES,
+    isArray: true,
+  })
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn(DAYS_OF_WEEK_ES, { each: true, message: 'Each day must be one of: Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo' })
+  @IsNotEmpty()
+  days: string[];
+
+  @ApiProperty({ example: '08:00', description: 'Hora de inicio (HH:mm 24h)' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'start_time must be in HH:mm 24h format' })
+  start_time: string;
+
+  @ApiProperty({ example: '17:00', description: 'Hora de fin (HH:mm 24h)' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'end_time must be in HH:mm 24h format' })
+  end_time: string;
+
+  @ApiProperty({ example: 'Horario laboral estándar L-V', description: 'Descripción del horario' })
+  @IsString()
+  @IsNotEmpty()
+  detail: string;
+
+  @ApiProperty({ example: 1, description: 'ID del tipo de estado (state_type)' })
+  @IsNumber()
+  @IsNotEmpty()
+  state_type_id: number;
+
+  @ApiProperty({ example: 'BOT demands online', description: 'Responsable' })
+  @IsString()
+  @IsNotEmpty()
+  responsible: string;
+}
+
 export class AttentionScheduleDto {
-  @ApiPropertyOptional({ example: 1, description: 'ID (opcional en POST, lo genera la BD)' })
+  @ApiPropertyOptional({ example: 1, description: 'ID (opcional en POST)' })
   @IsNumber()
   @IsOptional()
   id?: number;
@@ -18,124 +72,87 @@ export class AttentionScheduleDto {
   @IsNotEmpty()
   portfolio_type_id: number;
 
-  @ApiProperty({ example: 1, description: 'ID del tipo de campaña (campaing_type)' })
-  @IsNumber()
-  @IsNotEmpty()
-  campaing_type_id: number;
+  @ApiPropertyOptional({ description: 'Nombre del tipo de cartera (solo en respuestas)' })
+  @IsString()
+  @IsOptional()
+  portfolio_type_name?: string;
 
   @ApiProperty({
-    example: 'Lunes',
-    description: 'Día de la semana (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo)',
-    enum: DAYS_OF_WEEK,
+    example: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Días de la semana en español',
+    enum: DAYS_OF_WEEK_ES,
+    isArray: true,
   })
-  @IsString()
-  @IsIn(DAYS_OF_WEEK)
-  day_of_week: string;
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn(DAYS_OF_WEEK_ES, { each: true })
+  days: string[];
 
-  @ApiProperty({
-    example: 'continua',
-    description: 'Tipo de jornada (continua o partida)',
-    enum: SHIFT_TYPES,
-  })
+  @ApiProperty({ example: '08:00', description: 'Hora de inicio (HH:mm)' })
   @IsString()
-  @IsIn(SHIFT_TYPES)
-  shiftType: string;
-
-  @ApiProperty({
-    example: '08:00',
-    description: 'Hora de inicio en formato 24 horas (HH:mm)',
-  })
-  @IsString()
-  @Matches(TIME_24H_REGEX, { message: 'start_time must be in HH:mm 24h format' })
   start_time: string;
 
-  @ApiProperty({
-    example: '17:00',
-    description: 'Hora de fin en formato 24 horas (HH:mm)',
-  })
+  @ApiProperty({ example: '17:00', description: 'Hora de fin (HH:mm)' })
   @IsString()
-  @Matches(TIME_24H_REGEX, { message: 'end_time must be in HH:mm 24h format' })
   end_time: string;
 
-  @ApiProperty({
-    example: 'Horario continuo de 8 a 17 para Propias / Claro',
-    description: 'Descripción del horario',
-  })
+  @ApiProperty({ example: 'Horario laboral estándar', description: 'Descripción' })
   @IsString()
-  @IsNotEmpty()
   detail: string;
 
   @ApiProperty({ example: 1, description: 'ID del tipo de estado (state_type)' })
   @IsNumber()
-  @IsNotEmpty()
   state_type_id: number;
 
-  @ApiPropertyOptional({ example: '2026-02-25T12:00:00.000Z', description: 'Fecha de creación (opcional en POST)' })
+  @ApiPropertyOptional({ description: 'Nombre del tipo de estado (solo en respuestas)' })
+  @IsString()
+  @IsOptional()
+  state_type_name?: string;
+
+  @ApiPropertyOptional()
   @IsDate()
   @IsOptional()
   created_at?: Date;
 
-  @ApiPropertyOptional({ example: '2026-02-25T12:00:00.000Z', description: 'Fecha de actualización (opcional en POST)' })
+  @ApiPropertyOptional()
   @IsDate()
   @IsOptional()
   updated_at?: Date;
 
-  @ApiProperty({ example: 'BOT demands online', description: 'Responsable del registro' })
+  @ApiProperty({ example: 'BOT demands online' })
   @IsString()
-  @IsNotEmpty()
   responsible: string;
 }
 
-/** Body para PUT: solo los campos a actualizar. El id va en la URL, no en el body. */
+/** Body para PUT: el id va en la URL; days es array de días en español. */
 export class UpdateAttentionScheduleDto {
   @ApiProperty({ example: 1, description: 'ID del tipo de cartera (portfolio_type)' })
   @IsNumber()
   @IsNotEmpty()
   portfolio_type_id: number;
 
-  @ApiProperty({ example: 1, description: 'ID del tipo de campaña (campaing_type)' })
-  @IsNumber()
-  @IsNotEmpty()
-  campaing_type_id: number;
-
   @ApiProperty({
-    example: 'Lunes',
-    description: 'Día de la semana (Lunes, Martes, Miércoles, Jueves, Viernes, Sábado, Domingo)',
-    enum: DAYS_OF_WEEK,
+    example: ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes'],
+    description: 'Días en español',
+    enum: DAYS_OF_WEEK_ES,
+    isArray: true,
   })
-  @IsString()
-  @IsIn(DAYS_OF_WEEK)
-  day_of_week: string;
+  @IsArray()
+  @IsString({ each: true })
+  @IsIn(DAYS_OF_WEEK_ES, { each: true })
+  days: string[];
 
-  @ApiProperty({
-    example: 'continua',
-    description: 'Tipo de jornada (continua o partida)',
-    enum: SHIFT_TYPES,
-  })
-  @IsString()
-  @IsIn(SHIFT_TYPES)
-  shiftType: string;
-
-  @ApiProperty({
-    example: '08:00',
-    description: 'Hora de inicio en formato 24 horas (HH:mm)',
-  })
+  @ApiProperty({ example: '08:00' })
   @IsString()
   @Matches(TIME_24H_REGEX, { message: 'start_time must be in HH:mm 24h format' })
   start_time: string;
 
-  @ApiProperty({
-    example: '17:00',
-    description: 'Hora de fin en formato 24 horas (HH:mm)',
-  })
+  @ApiProperty({ example: '17:00' })
   @IsString()
   @Matches(TIME_24H_REGEX, { message: 'end_time must be in HH:mm 24h format' })
   end_time: string;
 
-  @ApiProperty({
-    example: 'Horario continuo de 8 a 17 para Propias / Claro',
-    description: 'Descripción del horario',
-  })
+  @ApiProperty({ example: 'Horario laboral estándar' })
   @IsString()
   @IsNotEmpty()
   detail: string;
@@ -145,19 +162,18 @@ export class UpdateAttentionScheduleDto {
   @IsNotEmpty()
   state_type_id: number;
 
-  @ApiPropertyOptional({ example: '2026-02-25T12:00:00.000Z', description: 'Fecha de creación' })
+  @ApiPropertyOptional()
   @IsDate()
   @IsOptional()
   created_at?: Date;
 
-  @ApiPropertyOptional({ example: '2026-02-25T12:00:00.000Z', description: 'Fecha de actualización' })
+  @ApiPropertyOptional()
   @IsDate()
   @IsOptional()
   updated_at?: Date;
 
-  @ApiProperty({ example: 'BOT demands online', description: 'Responsable del registro' })
+  @ApiProperty({ example: 'BOT demands online' })
   @IsString()
   @IsNotEmpty()
   responsible: string;
 }
-

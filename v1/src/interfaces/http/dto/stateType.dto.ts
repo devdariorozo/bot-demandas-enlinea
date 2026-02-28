@@ -14,7 +14,7 @@ export class StateTypeDto {
     @IsNotEmpty()
     type: string;
 
-    @ApiProperty({ example: 'Active registered', description: 'Descripción del estado' })
+    @ApiProperty({ example: 'Registro activo', description: 'Descripción del estado' })
     @IsString()
     @IsNotEmpty()
     detail: string;
@@ -42,7 +42,7 @@ export class UpdateStateTypeDto {
     @IsNotEmpty()
     type: string;
 
-    @ApiProperty({ example: 'Active registered', description: 'Descripción del estado' })
+    @ApiProperty({ example: 'Registro activo', description: 'Descripción del estado' })
     @IsString()
     @IsNotEmpty()
     detail: string;
