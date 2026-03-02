@@ -5,6 +5,7 @@ import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { JsonParseExceptionFilter } from './interfaces/http/filters/jsonParseException.filter';
+import { StandardResponseInterceptor } from './interfaces/http/interceptors/standardResponse.interceptor';
 import { EnvironmentTypeDto, UpdateEnvironmentTypeDto } from '@interfaces/http/dto/environmentType.dto';
 import { StateTypeDto, UpdateStateTypeDto } from '@interfaces/http/dto/stateType.dto';
 import { PortfolioTypeDto, UpdatePortfolioTypeDto } from '@interfaces/http/dto/portfolioType.dto';
@@ -22,6 +23,26 @@ async function bootstrap() {
 
   const logger = new Logger('Bootstrap');
 
+  const corsAllowedOrigins =
+    process.env.CORS_ALLOWED_ORIGINS?.split(',')
+      .map((origin) => origin.trim())
+      .filter((origin) => origin.length > 0) ?? [];
+
+  app.enableCors({
+    origin: (origin, callback) => {
+      if (!origin || corsAllowedOrigins.length === 0) {
+        return callback(null, true);
+      }
+
+      if (corsAllowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
+    credentials: true,
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -31,6 +52,7 @@ async function bootstrap() {
   );
 
   app.useGlobalFilters(new JsonParseExceptionFilter());
+  app.useGlobalInterceptors(new StandardResponseInterceptor());
 
   const swaggerTitle =
     process.env.NOMBRE_SERVICIO_SWAGGER ?? 'Bot Demandas en Línea';

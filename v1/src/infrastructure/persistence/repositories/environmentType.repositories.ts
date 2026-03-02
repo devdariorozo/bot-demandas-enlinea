@@ -2,7 +2,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Like, Repository } from 'typeorm';
 
 import { EnvironmentType } from '@domain/entities/environmentType.entities';
 import {
@@ -48,13 +48,31 @@ export class EnvironmentTypeRepositoryImpl implements EnvironmentTypeRepository 
         }
         return environmentType;
     }
-    // Obtener un tipo de entorno por su type
+    // Obtener un tipo de entorno por su type (búsqueda exacta y luego parcial con LIKE)
     async findByType(type: string): Promise<EnvironmentType> {
-        const environmentType = await this.environmentTypeRepository.findOneBy({ type });
-        if (!environmentType) {
+        const normalized = (type ?? '').trim();
+
+        if (!normalized) {
             throw new Error('Environment type not found');
         }
-        return environmentType;
+
+        const exact = await this.environmentTypeRepository.findOne({
+            where: { type: normalized },
+        });
+        if (exact) {
+            return exact;
+        }
+
+        const partialMatches = await this.environmentTypeRepository.find({
+            where: { type: Like(`%${normalized}%`) },
+            order: { id: 'ASC' },
+        });
+
+        if (!partialMatches.length) {
+            throw new Error('Environment type not found');
+        }
+
+        return partialMatches[0];
     }
     // Actualizar un tipo de entorno
     async update(environmentType: EnvironmentType): Promise<EnvironmentType> {

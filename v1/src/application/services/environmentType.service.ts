@@ -55,8 +55,12 @@ export class EnvironmentTypeService {
     }
     // Actualizar un tipo de entorno
     async update(environmentType: EnvironmentType): Promise<EnvironmentType> {
-        const existing = await this.environmentTypeRepository.findById(environmentType.id);
-        if (!existing) throw new NotFoundException('No data found for the given id');
+        let existing: EnvironmentType;
+        try {
+            existing = await this.environmentTypeRepository.findById(environmentType.id);
+        } catch {
+            throw new NotFoundException('No data found for the given id');
+        }
 
         const normalized = { ...environmentType, detail: capitalizeFirstWord(environmentType.detail) };
         const hasChanges =

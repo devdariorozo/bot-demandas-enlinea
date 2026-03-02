@@ -55,8 +55,12 @@ export class StateTypeService {
     }
     // Actualizar un tipo de estado
     async update(stateType: StateType): Promise<StateType> {
-        const existing = await this.stateTypeRepository.findById(stateType.id);
-        if (!existing) throw new NotFoundException('No data found for the given id');
+        let existing: StateType;
+        try {
+            existing = await this.stateTypeRepository.findById(stateType.id);
+        } catch {
+            throw new NotFoundException('No data found for the given id');
+        }
 
         const normalized = { ...stateType, detail: capitalizeFirstWord(stateType.detail) };
         const hasChanges =

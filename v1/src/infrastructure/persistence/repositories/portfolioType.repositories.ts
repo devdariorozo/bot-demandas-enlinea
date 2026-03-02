@@ -5,7 +5,7 @@ import { InjectDataSource } from '@nestjs/typeorm';
 import { CreatePortfolioTypeInput, PortfolioTypeRepository } from '@domain/ports/portfolioType.ports';
 import { PortfolioTypeEntity } from '../entities/portfolioType.entities';
 import { StateTypeEntity } from '../entities/stateType.entities';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Like, Repository } from 'typeorm';
 import { PortfolioType } from '@domain/entities/portfolioType.entities';
 
 @Injectable()
@@ -65,13 +65,31 @@ export class PortfolioTypeRepositoryImpl implements PortfolioTypeRepository {
         }
         return PortfolioType;
     }
-    // Obtener un tipo de cartera por su type
+    // Obtener un tipo de cartera por su type (búsqueda exacta y luego parcial con LIKE)
     async findByType(type: string): Promise<PortfolioType> {
-        const PortfolioType = await this.PortfolioTypeRepository.findOneBy({ type });
-        if (!PortfolioType) {
+        const normalized = (type ?? '').trim();
+
+        if (!normalized) {
             throw new Error('Portfolio type not found');
         }
-        return PortfolioType;
+
+        const exact = await this.PortfolioTypeRepository.findOne({
+            where: { type: normalized },
+        });
+        if (exact) {
+            return exact;
+        }
+
+        const partialMatches = await this.PortfolioTypeRepository.find({
+            where: { type: Like(`%${normalized}%`) },
+            order: { id: 'ASC' },
+        });
+
+        if (!partialMatches.length) {
+            throw new Error('Portfolio type not found');
+        }
+
+        return partialMatches[0];
     }
     // Actualizar un tipo de cartera
     async update(PortfolioType: PortfolioType): Promise<PortfolioType> {

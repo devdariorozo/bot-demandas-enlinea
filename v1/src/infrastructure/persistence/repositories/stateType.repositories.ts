@@ -4,7 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { CreateStateTypeInput, StateTypeRepository } from '@domain/ports/stateType.ports';
 import { StateTypeEntity } from '../entities/stateType.entities';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, Like, Repository } from 'typeorm';
 import { StateType } from '@domain/entities/stateType.entities';
 
 @Injectable()
@@ -42,13 +42,31 @@ export class StateTypeRepositoryImpl implements StateTypeRepository {
         }
         return stateType;
     }
-    // Obtener un tipo de estado por su type
+    // Obtener un tipo de estado por su type (búsqueda exacta y luego parcial con LIKE)
     async findByType(type: string): Promise<StateType> {
-        const stateType = await this.stateTypeRepository.findOneBy({ type });
-        if (!stateType) {
+        const normalized = (type ?? '').trim();
+
+        if (!normalized) {
             throw new Error('State type not found');
         }
-        return stateType;
+
+        const exact = await this.stateTypeRepository.findOne({
+            where: { type: normalized },
+        });
+        if (exact) {
+            return exact;
+        }
+
+        const partialMatches = await this.stateTypeRepository.find({
+            where: { type: Like(`%${normalized}%`) },
+            order: { id: 'ASC' },
+        });
+
+        if (!partialMatches.length) {
+            throw new Error('State type not found');
+        }
+
+        return partialMatches[0];
     }
     // Actualizar un tipo de estado
     async update(stateType: StateType): Promise<StateType> {

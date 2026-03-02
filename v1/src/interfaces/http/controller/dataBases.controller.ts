@@ -1,11 +1,12 @@
 // Responsabilidad: endpoints HTTP de Nest (controller).
 
 import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiTags, getSchemaPath } from '@nestjs/swagger';
+import { ApiBody, ApiOperation, ApiQuery, ApiTags, getSchemaPath } from '@nestjs/swagger';
 import { DataBasesDto, UpdateDataBasesDto } from '../dto/dataBases.dto';
 import { DataBasesService } from '@application/services/dataBases.service';
 import { DataBases } from '@domain/entities/dataBases.entities';
 import { CreateDataBasesInput } from '@domain/ports/dataBases.ports';
+import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -46,26 +47,96 @@ export class DataBasesController {
   // Obtener todos los registros de bases
   @Get()
   @ApiOperation({ summary: 'Obtener todos los registros de bases' })
-  async findAll(): Promise<DataBasesDto[]> {
-    return this.dataBasesService.findAll();
-  }
+  @ApiQuery({ name: 'start_date', required: false, type: String, description: 'Fecha inicial de creación (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'end_date', required: false, type: String, description: 'Fecha final de creación (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'environment_type_id', required: false, type: Number, description: 'Filtrar por environment_type_id (opcional)' })
+  @ApiQuery({ name: 'portfolio_type_id', required: false, type: Number, description: 'Filtrar por portfolio_type_id (opcional)' })
+  @ApiQuery({ name: 'state_type_id', required: false, type: Number, description: 'Filtrar por state_type_id (opcional)' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
+  async findAll(
+    @Query('start_date') start_date?: string,
+    @Query('end_date') end_date?: string,
+    @Query('environment_type_id') environment_type_id?: number,
+    @Query('portfolio_type_id') portfolio_type_id?: number,
+    @Query('state_type_id') state_type_id?: number,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
+  ): Promise<PaginatedResult<DataBasesDto>> {
+    const normalizeFilterId = (value: unknown): number | undefined => {
+      if (value === undefined || value === null || (value as any) === '') return undefined;
+      const n = typeof value === 'number' ? value : Number(value as any);
+      if (!Number.isFinite(n) || n <= 0) return undefined;
+      return Math.floor(n);
+    };
 
-  // Obtener registros por combinación entorno/cartera (ruta fija antes de :id)
-  @Get('byEnvAndPortf')
-  @ApiOperation({ summary: 'Obtener registros de bases por combinación entorno/cartera' })
-  async findByEnvAndPortf(
-    @Query('environment_type_id') environment_type_id: number,
-    @Query('portfolio_type_id') portfolio_type_id: number,
-  ): Promise<DataBasesDto[]> {
-    return this.dataBasesService.findByEnvAndPortf(
-      Number(environment_type_id),
-      Number(portfolio_type_id),
-    );
+    const envId = normalizeFilterId(environment_type_id);
+    const portfId = normalizeFilterId(portfolio_type_id);
+    const stateId = normalizeFilterId(state_type_id);
+
+    const all = await this.dataBasesService.findAll();
+
+    const parseDate = (value?: string): Date | undefined => {
+      if (!value) return undefined;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+
+    const start = parseDate(start_date);
+    const end = parseDate(end_date);
+
+    const byDate = all.filter((item) => {
+      const created = (item as any).created_at ? new Date((item as any).created_at) : undefined;
+      if (!created || Number.isNaN(created.getTime())) return true;
+      if (start && created < start) return false;
+      if (end && created > end) return false;
+      return true;
+    });
+
+    const hasEnvFilter = envId !== undefined;
+    const hasPortfFilter = portfId !== undefined;
+    const hasStateFilter = stateId !== undefined;
+
+    const hasAnyIdFilter = hasEnvFilter || hasPortfFilter || hasStateFilter;
+
+    // Si NO viene ningún filtro de IDs, devolvemos todo lo filtrado solo por fecha.
+    if (!hasAnyIdFilter) {
+      return paginateArray(byDate, page, limit);
+    }
+
+    const filtered = byDate.filter((item) => {
+      if (
+        hasEnvFilter &&
+        Number(item.environment_type_id) !== Number(envId)
+      ) {
+        return false;
+      }
+
+      if (
+        hasPortfFilter &&
+        Number(item.portfolio_type_id) !== Number(portfId)
+      ) {
+        return false;
+      }
+
+      if (
+        hasStateFilter &&
+        Number(item.state_type_id) !== Number(stateId)
+      ) {
+        return false;
+      }
+
+      return true;
+    });
+
+    return paginateArray(filtered, page, limit);
   }
 
   // Obtener un registro de bases por su id
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un registro de bases por su id' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
   async findById(@Param('id') id: number): Promise<DataBasesDto> {
     return this.dataBasesService.findById(id);
   }

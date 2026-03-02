@@ -1,11 +1,12 @@
 // Responsabilidad: endpoints HTTP de Nest (controller).
 
-import { Controller, Get, Post, Put, Delete, Body, Param } from '@nestjs/common';
-import { ApiBody, ApiOperation, ApiTags, getSchemaPath } from '@nestjs/swagger';
+import { Body, Controller, Delete, Get, Param, Post, Put, Query } from '@nestjs/common';
+import { ApiBody, ApiOperation, ApiQuery, ApiTags, getSchemaPath } from '@nestjs/swagger';
 import { EnvironmentTypeDto, UpdateEnvironmentTypeDto } from '../dto/environmentType.dto';
 import { EnvironmentTypeService } from '@application/services/environmentType.service';
 import { EnvironmentType } from '@domain/entities/environmentType.entities';
 import { CreateEnvironmentTypeInput } from '@domain/ports/environmentType.ports';
+import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -37,19 +38,51 @@ export class EnvironmentTypeController {
     }
     // Obtener todos los tipos de entorno
     @Get()
-    @ApiOperation({ summary: 'Obtener todos los tipos de entorno' })
-    async findAll(): Promise<EnvironmentTypeDto[]> {
-        return this.environmentTypeService.findAll();
-    }
-    // Obtener un tipo de entorno por su type (ruta fija antes de :id)
-    @Get('byType/:type')
-    @ApiOperation({ summary: 'Obtener un tipo de entorno por su type' })
-    async findByType(@Param('type') type: string): Promise<EnvironmentTypeDto> {
-        return this.environmentTypeService.findByType(type);
+  @ApiOperation({ summary: 'Obtener todos los tipos de entorno' })
+  @ApiQuery({ name: 'start_date', required: false, type: String, description: 'Fecha inicial de creación (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'end_date', required: false, type: String, description: 'Fecha final de creación (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'type', required: false, type: String, description: 'Filtrar por type (búsqueda parcial, opcional)' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
+    async findAll(
+    @Query('type') type?: string,
+    @Query('start_date') start_date?: string,
+    @Query('end_date') end_date?: string,
+        @Query('page') page?: number,
+        @Query('limit') limit?: number,
+    ): Promise<PaginatedResult<EnvironmentTypeDto>> {
+    const all = await this.environmentTypeService.findAll();
+
+    const parseDate = (value?: string): Date | undefined => {
+      if (!value) return undefined;
+      const d = new Date(value);
+      return Number.isNaN(d.getTime()) ? undefined : d;
+    };
+
+    const start = parseDate(start_date);
+    const end = parseDate(end_date);
+    const normalizedType = type?.trim().toLowerCase() || '';
+
+    const byDate = all.filter((item) => {
+      const created = (item as any).created_at ? new Date((item as any).created_at) : undefined;
+      if (!created || Number.isNaN(created.getTime())) return true;
+      if (start && created < start) return false;
+      if (end && created > end) return false;
+      return true;
+    });
+
+    const byFilters = byDate.filter((item) => {
+      if (normalizedType && !item.type.toLowerCase().includes(normalizedType)) return false;
+      return true;
+    });
+
+    return paginateArray(byFilters, page, limit);
     }
     // Obtener un tipo de entorno por su id
     @Get(':id')
     @ApiOperation({ summary: 'Obtener un tipo de entorno por su id' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
     async findById(@Param('id') id: number): Promise<EnvironmentTypeDto> {
         return this.environmentTypeService.findById(id);
     }
