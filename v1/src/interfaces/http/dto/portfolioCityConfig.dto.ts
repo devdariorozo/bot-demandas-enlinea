@@ -14,6 +14,14 @@ export class PortfolioCityConfigDto {
   @IsNotEmpty()
   id_data_bases: number;
 
+  @ApiPropertyOptional({
+    example: 1,
+    description: 'ID del tipo de portafolio (derivado de data_bases.portfolio_type_id, solo en respuestas)',
+  })
+  @IsNumber()
+  @IsOptional()
+  portfolio_type_id?: number;
+
   @ApiProperty({ example: 149, description: 'ID de la vista de ciudades (id_city_views)' })
   @IsNumber()
   @IsNotEmpty()
@@ -41,6 +49,14 @@ export class PortfolioCityConfigDto {
   @IsString()
   @IsNotEmpty()
   detail: string;
+
+  @ApiPropertyOptional({
+    example: 'Propias',
+    description: 'Nombre del tipo de portafolio (JOIN a portfolio_type.type, solo en respuestas)',
+  })
+  @IsString()
+  @IsOptional()
+  portfolio_type_name?: string;
 
   @ApiPropertyOptional({ description: 'Nombre del tipo de estado (solo en respuestas)' })
   @IsString()

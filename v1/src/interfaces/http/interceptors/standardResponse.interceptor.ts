@@ -171,6 +171,23 @@ export class StandardResponseInterceptor implements NestInterceptor {
           };
         }
 
+        // Si el controller ya devolvió { data } (sin meta), usar ese data y no añadir page/limit/total
+        if (
+          body &&
+          typeof body === 'object' &&
+          'data' in body &&
+          !('meta' in body)
+        ) {
+          const rawData = (body as { data: any }).data;
+          return {
+            status,
+            type,
+            title,
+            message,
+            data: formatDatesDeep(rawData),
+          };
+        }
+
         // Si es un array "plano"
         if (Array.isArray(body)) {
           const page =

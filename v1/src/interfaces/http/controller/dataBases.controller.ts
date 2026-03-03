@@ -7,6 +7,7 @@ import { DataBasesService } from '@application/services/dataBases.service';
 import { DataBases } from '@domain/entities/dataBases.entities';
 import { CreateDataBasesInput } from '@domain/ports/dataBases.ports';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -40,8 +41,21 @@ export class DataBasesController {
     description: 'El JSON de abajo sirve de guía.',
     schema: { allOf: [{ $ref: getSchemaPath(DataBasesDto) }], example: createExampleSchema },
   })
-  async create(@Body() dto: DataBasesDto): Promise<DataBasesDto> {
-    return this.dataBasesService.create(dto as CreateDataBasesInput);
+  async create(@Body() dto: DataBasesDto) {
+    const created = await this.dataBasesService.create(dto as CreateDataBasesInput);
+    return dataOne(created);
+  }
+
+  // Listado simple para selects (id + label_name)
+  @Get('options')
+  @ApiOperation({ summary: 'Obtener opciones de bases de datos para selects' })
+  async options() {
+    const all = await this.dataBasesService.findAll();
+    const items = all.map((item) => ({
+      id: item.id,
+      label_name: item.label_data_base ?? item.detail,
+    }));
+    return dataMany(items);
   }
 
   // Obtener todos los registros de bases
@@ -137,8 +151,9 @@ export class DataBasesController {
   @ApiOperation({ summary: 'Obtener un registro de bases por su id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-  async findById(@Param('id') id: number): Promise<DataBasesDto> {
-    return this.dataBasesService.findById(id);
+  async findById(@Param('id') id: number) {
+    const item = await this.dataBasesService.findById(id);
+    return dataOne(item);
   }
 
   // Actualizar un registro de bases
@@ -148,15 +163,17 @@ export class DataBasesController {
     description: 'El JSON de abajo sirve de guía.',
     schema: { allOf: [{ $ref: getSchemaPath(UpdateDataBasesDto) }], example: updateExampleSchema },
   })
-  async update(@Param('id') id: number, @Body() body: UpdateDataBasesDto): Promise<DataBasesDto> {
-    return this.dataBasesService.update({ ...body, id: Number(id) } as DataBases);
+  async update(@Param('id') id: number, @Body() body: UpdateDataBasesDto) {
+    const updated = await this.dataBasesService.update({ ...body, id: Number(id) } as DataBases);
+    return dataOne(updated);
   }
 
   // Eliminar un registro de bases
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar un registro de bases' })
-  async delete(@Param('id') id: number): Promise<void> {
-    return this.dataBasesService.delete(id);
+  async delete(@Param('id') id: number) {
+    await this.dataBasesService.delete(id);
+    return dataEmpty();
   }
 }
 

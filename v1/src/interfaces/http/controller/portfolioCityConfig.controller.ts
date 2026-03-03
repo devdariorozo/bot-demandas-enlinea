@@ -7,6 +7,7 @@ import { PortfolioCityConfigService } from '@application/services/portfolioCityC
 import { PortfolioCityConfig } from '@domain/entities/portfolioCityConfig.entities';
 import { CreatePortfolioCityConfigInput } from '@domain/ports/portfolioCityConfig.ports';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 const createExampleSchema = {
   id_data_bases: 1,
@@ -51,8 +52,25 @@ export class PortfolioCityConfigController {
       example: createExampleSchema,
     },
   })
-  async create(@Body() dto: PortfolioCityConfigDto): Promise<PortfolioCityConfigDto> {
-    return this.portfolioCityConfigService.create(dto as CreatePortfolioCityConfigInput);
+  async create(@Body() dto: PortfolioCityConfigDto) {
+    const created = await this.portfolioCityConfigService.create(dto as CreatePortfolioCityConfigInput);
+    return dataOne(created);
+  }
+
+  @Get('options')
+  @ApiOperation({ summary: 'Obtener opciones de configuración cartera-ciudad para selects' })
+  async options() {
+    const all = await this.portfolioCityConfigService.findAll();
+    const items = all.map((item) => {
+      const env = (item.environment_type_name ?? '').trim();
+      const envCapitalized = env ? env.charAt(0).toUpperCase() + env.slice(1).toLowerCase() : '';
+      const parts = [envCapitalized, item.portfolio_type_name ?? '', item.city].filter(Boolean);
+      return {
+        id: item.id,
+        label_name: parts.join(' '),
+      };
+    });
+    return dataMany(items);
   }
 
   @Get()
@@ -118,18 +136,18 @@ export class PortfolioCityConfigController {
     type: Number,
     description: 'ID del registro en data_bases; se usa la primera base del array (posición 0) para consultar v_cities.',
   })
-  async vCitiesFetch(
-    @Query('id_data_bases') id_data_bases: number,
-  ): Promise<{ id: number; city_name: string; department: string; city: string }[]> {
-    return this.portfolioCityConfigService.vCitiesFetch(Number(id_data_bases));
+  async vCitiesFetch(@Query('id_data_bases') id_data_bases: number) {
+    const items = await this.portfolioCityConfigService.vCitiesFetch(Number(id_data_bases));
+    return dataMany(items);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener una configuración por id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-  async findById(@Param('id') id: number): Promise<PortfolioCityConfigDto> {
-    return this.portfolioCityConfigService.findById(id);
+  async findById(@Param('id') id: number) {
+    const item = await this.portfolioCityConfigService.findById(id);
+    return dataOne(item);
   }
 
   @Put(':id')
@@ -144,13 +162,15 @@ export class PortfolioCityConfigController {
   async update(
     @Param('id') id: number,
     @Body() body: UpdatePortfolioCityConfigDto,
-  ): Promise<PortfolioCityConfigDto> {
-    return this.portfolioCityConfigService.update({ ...body, id: Number(id) } as PortfolioCityConfig);
+  ) {
+    const updated = await this.portfolioCityConfigService.update({ ...body, id: Number(id) } as PortfolioCityConfig);
+    return dataOne(updated);
   }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar una configuración' })
-  async delete(@Param('id') id: number): Promise<void> {
-    return this.portfolioCityConfigService.delete(id);
+  async delete(@Param('id') id: number) {
+    await this.portfolioCityConfigService.delete(id);
+    return dataEmpty();
   }
 }

@@ -6,6 +6,7 @@ import { StateTypeDto, UpdateStateTypeDto } from '../dto/stateType.dto';
 import { StateTypeService } from '@application/services/stateType.service';
 import { StateType } from '@domain/entities/stateType.entities';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -35,6 +36,14 @@ export class StateTypeController {
     async create(@Body() stateTypeDto: StateTypeDto): Promise<StateTypeDto> {
         return this.stateTypeService.create(stateTypeDto);
     }
+    // Listado simple para selects (id + label_name)
+    @Get('options')
+    @ApiOperation({ summary: 'Obtener opciones de tipos de estado para selects' })
+    async options() {
+        const all = await this.stateTypeService.findAll();
+        const items = all.map((item) => ({ id: item.id, label_name: item.type }));
+        return dataMany(items);
+    }
     // Obtener todos los tipos de estado
     @Get()
   @ApiOperation({ summary: 'Obtener todos los tipos de estado' })
@@ -44,11 +53,11 @@ export class StateTypeController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
     async findAll(
-    @Query('type') type?: string,
     @Query('start_date') start_date?: string,
     @Query('end_date') end_date?: string,
-        @Query('page') page?: number,
-        @Query('limit') limit?: number,
+    @Query('type') type?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
     ): Promise<PaginatedResult<StateTypeDto>> {
     const all = await this.stateTypeService.findAll();
 
@@ -82,8 +91,9 @@ export class StateTypeController {
     @ApiOperation({ summary: 'Obtener un tipo de estado por su id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-    async findById(@Param('id') id: number): Promise<StateTypeDto> {
-        return this.stateTypeService.findById(id);
+    async findById(@Param('id') id: number) {
+        const item = await this.stateTypeService.findById(id);
+        return dataOne(item);
     }
     // Actualizar un tipo de estado
     @Put(':id')
@@ -92,13 +102,15 @@ export class StateTypeController {
         description: 'El JSON de abajo sirve de guía.',
         schema: { allOf: [{ $ref: getSchemaPath(UpdateStateTypeDto) }], example: updateExampleSchema },
     })
-    async update(@Param('id') id: number, @Body() body: UpdateStateTypeDto): Promise<StateTypeDto> {
-        return this.stateTypeService.update({ ...body, id: Number(id) } as StateType);
+    async update(@Param('id') id: number, @Body() body: UpdateStateTypeDto) {
+        const updated = await this.stateTypeService.update({ ...body, id: Number(id) } as StateType);
+        return dataOne(updated);
     }
     // Eliminar un tipo de estado
     @Delete(':id')
     @ApiOperation({ summary: 'Eliminar un tipo de estado' })
-    async delete(@Param('id') id: number): Promise<void> {
-        return this.stateTypeService.delete(id);
+    async delete(@Param('id') id: number) {
+        await this.stateTypeService.delete(id);
+        return dataEmpty();
     }
 }

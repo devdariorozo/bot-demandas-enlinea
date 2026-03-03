@@ -7,6 +7,7 @@ import { PortfolioTypeService } from '@application/services/portfolioType.servic
 import { PortfolioType } from '@domain/entities/portfolioType.entities';
 import { CreatePortfolioTypeInput } from '@domain/ports/portfolioType.ports';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -35,8 +36,17 @@ export class PortfolioTypeController {
         description: 'El JSON de abajo sirve de guía.',
         schema: { allOf: [{ $ref: getSchemaPath(PortfolioTypeDto) }], example: createExampleSchema },
     })
-    async create(@Body() portfolioTypeDto: PortfolioTypeDto): Promise<PortfolioTypeDto> {
-        return this.portfolioTypeService.create(portfolioTypeDto as CreatePortfolioTypeInput);
+    async create(@Body() portfolioTypeDto: PortfolioTypeDto) {
+        const created = await this.portfolioTypeService.create(portfolioTypeDto as CreatePortfolioTypeInput);
+        return dataOne(created);
+    }
+    // Listado simple para selects (id + label_name)
+    @Get('options')
+    @ApiOperation({ summary: 'Obtener opciones de tipos de cartera para selects' })
+    async options() {
+        const all = await this.portfolioTypeService.findAll();
+        const items = all.map((item) => ({ id: item.id, label_name: item.type }));
+        return dataMany(items);
     }
     // Obtener todos los tipos de cartera
     @Get()
@@ -48,12 +58,12 @@ export class PortfolioTypeController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
     async findAll(
-    @Query('type') type?: string,
     @Query('start_date') start_date?: string,
     @Query('end_date') end_date?: string,
-        @Query('state_type_id') state_type_id?: number,
-        @Query('page') page?: number,
-        @Query('limit') limit?: number,
+    @Query('type') type?: string,
+    @Query('state_type_id') state_type_id?: number,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
     ): Promise<PaginatedResult<PortfolioTypeDto>> {
     const all = await this.portfolioTypeService.findAll();
 
@@ -76,9 +86,19 @@ export class PortfolioTypeController {
     });
 
     const filtered = byDate.filter((item) => {
-      const hasStateFilter = state_type_id !== undefined && state_type_id !== null && (state_type_id as any) !== '';
+      const normalizedStateId =
+        state_type_id === undefined || state_type_id === null
+          ? undefined
+          : (() => {
+              const n =
+                typeof state_type_id === 'number'
+                  ? state_type_id
+                  : Number(state_type_id as any);
+              if (!Number.isFinite(n) || n <= 0) return undefined;
+              return Math.floor(n);
+            })();
       if (normalizedType && !item.type.toLowerCase().includes(normalizedType)) return false;
-      if (hasStateFilter && Number(item.state_type_id) !== Number(state_type_id)) return false;
+      if (normalizedStateId !== undefined && Number(item.state_type_id) !== normalizedStateId) return false;
       return true;
     });
 
@@ -89,8 +109,9 @@ export class PortfolioTypeController {
     @ApiOperation({ summary: 'Obtener un tipo de cartera por su id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-    async findById(@Param('id') id: number): Promise<PortfolioTypeDto> {
-        return this.portfolioTypeService.findById(id);
+    async findById(@Param('id') id: number) {
+        const item = await this.portfolioTypeService.findById(id);
+        return dataOne(item);
     }
     // Actualizar un tipo de cartera
     @Put(':id')
@@ -99,13 +120,15 @@ export class PortfolioTypeController {
         description: 'El JSON de abajo sirve de guía.',
         schema: { allOf: [{ $ref: getSchemaPath(UpdatePortfolioTypeDto) }], example: updateExampleSchema },
     })
-    async update(@Param('id') id: number, @Body() body: UpdatePortfolioTypeDto): Promise<PortfolioTypeDto> {
-        return this.portfolioTypeService.update({ ...body, id: Number(id) } as PortfolioType);
+    async update(@Param('id') id: number, @Body() body: UpdatePortfolioTypeDto) {
+        const updated = await this.portfolioTypeService.update({ ...body, id: Number(id) } as PortfolioType);
+        return dataOne(updated);
     }
     // Eliminar un tipo de cartera
     @Delete(':id')
     @ApiOperation({ summary: 'Eliminar un tipo de cartera' })
-    async delete(@Param('id') id: number): Promise<void> {
-        return this.portfolioTypeService.delete(id);
+    async delete(@Param('id') id: number) {
+        await this.portfolioTypeService.delete(id);
+        return dataEmpty();
     }
 }

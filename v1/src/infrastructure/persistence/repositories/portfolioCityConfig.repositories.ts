@@ -11,6 +11,9 @@ import {
   CreatePortfolioCityConfigInput,
 } from '@domain/ports/portfolioCityConfig.ports';
 import { StateTypeEntity } from '../entities/stateType.entities';
+import { DataBasesEntity } from '../entities/dataBases.entities';
+import { PortfolioTypeEntity } from '../entities/portfolioType.entities';
+import { EnvironmentTypeEntity } from '../entities/environmentType.entities';
 
 @Injectable()
 export class PortfolioCityConfigRepositoryImpl implements PortfolioCityConfigRepository {
@@ -42,9 +45,13 @@ export class PortfolioCityConfigRepositoryImpl implements PortfolioCityConfigRep
     const raw = await this.repo
       .createQueryBuilder('pcc')
       .leftJoin(StateTypeEntity, 'st', 'st.id = pcc.state_type_id')
+      .leftJoin(DataBasesEntity, 'db', 'db.id = pcc.id_data_bases')
+      .leftJoin(EnvironmentTypeEntity, 'env', 'env.id = db.environment_type_id')
+      .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = db.portfolio_type_id')
       .select([
         'pcc.id',
         'pcc.id_data_bases',
+        'db.portfolio_type_id',
         'pcc.id_city_views',
         'pcc.name_departament',
         'pcc.name_city',
@@ -55,12 +62,17 @@ export class PortfolioCityConfigRepositoryImpl implements PortfolioCityConfigRep
         'pcc.updated_at',
         'pcc.responsible',
       ])
+      .addSelect('env.type', 'environment_type_name')
       .addSelect('st.type', 'state_type_name')
+      .addSelect('pf.type', 'portfolio_type_name')
       .getRawMany();
 
     return raw.map((row: Record<string, unknown>) => ({
       id: row.pcc_id as number,
       id_data_bases: row.pcc_id_data_bases as number,
+      environment_type_name: (row.environment_type_name as string) ?? '',
+      portfolio_type_id: row.db_portfolio_type_id as number,
+      portfolio_type_name: (row.portfolio_type_name as string) ?? '',
       id_city_views: row.pcc_id_city_views as number,
       name_departament: row.pcc_name_departament as string,
       name_city: row.pcc_name_city as string,

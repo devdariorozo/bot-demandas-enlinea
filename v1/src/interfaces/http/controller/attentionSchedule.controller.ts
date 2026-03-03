@@ -7,6 +7,7 @@ import { AttentionScheduleService } from '@application/services/attentionSchedul
 import { AttentionSchedule } from '@domain/entities/attentionSchedule.entities';
 import { CreateAttentionScheduleInput } from '@domain/ports/attentionSchedule.ports';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 const createExampleSchema = {
   portfolio_type_id: 1,
@@ -59,6 +60,18 @@ export class AttentionScheduleController {
   })
   async create(@Body() dto: CreateAttentionScheduleDto): Promise<AttentionScheduleDto> {
     return this.attentionScheduleService.create(dto as CreateAttentionScheduleInput);
+  }
+
+  // Listado simple para selects (id + label_name)
+  @Get('options')
+  @ApiOperation({ summary: 'Obtener opciones de horarios de atención para selects' })
+  async options() {
+    const all = await this.attentionScheduleService.findAll();
+    const items = all.map((item) => ({
+      id: item.id,
+      label_name: `Horario ${(item.portfolio_type_name ?? '').trim()}`.trim() || 'Horario',
+    }));
+    return dataMany(items);
   }
 
   @Get()
@@ -121,8 +134,9 @@ export class AttentionScheduleController {
   @ApiOperation({ summary: 'Obtener un horario por id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-  async findById(@Param('id') id: number): Promise<AttentionScheduleDto> {
-    return this.attentionScheduleService.findById(id);
+  async findById(@Param('id') id: number) {
+    const item = await this.attentionScheduleService.findById(id);
+    return dataOne(item);
   }
 
   @Put(':id')
@@ -139,7 +153,8 @@ export class AttentionScheduleController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar un horario de atención' })
-  async delete(@Param('id') id: number): Promise<void> {
-    return this.attentionScheduleService.delete(id);
+  async delete(@Param('id') id: number) {
+    await this.attentionScheduleService.delete(id);
+    return dataEmpty();
   }
 }

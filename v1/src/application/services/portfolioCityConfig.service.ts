@@ -20,6 +20,7 @@ import {
   VCitiesRow,
 } from '@domain/ports/dataBases.ports';
 import { STATE_TYPE_REPOSITORY, StateTypeRepository } from '@domain/ports/stateType.ports';
+import { DataBasesService } from '@application/services/dataBases.service';
 import { DataBasesId } from '@domain/value-objects/dataBases.valueobjects';
 import { StateTypeId } from '@domain/value-objects/stateType.valueobjects';
 import { CityViewsId } from '@domain/value-objects/portfolioCityConfig.valueobjects';
@@ -34,6 +35,7 @@ export class PortfolioCityConfigService {
     private readonly dataBasesRepository: DataBasesRepository,
     @Inject(STATE_TYPE_REPOSITORY)
     private readonly stateTypeRepository: StateTypeRepository,
+    private readonly dataBasesService: DataBasesService,
   ) {}
 
   async create(input: CreatePortfolioCityConfigInput): Promise<PortfolioCityConfig> {
@@ -84,7 +86,33 @@ export class PortfolioCityConfigService {
     try {
       const config = await this.portfolioCityConfigRepository.findById(id);
       const state = await this.stateTypeRepository.findById(config.state_type_id);
-      return { ...config, state_type_name: state.type };
+      // Enriquecer con información de portafolio (id y nombre), derivada de data_bases
+      let portfolio_type_id: number | undefined;
+      let portfolio_type_name: string | undefined;
+      try {
+        const db = await this.dataBasesService.findById(config.id_data_bases);
+        portfolio_type_id = db.portfolio_type_id;
+        portfolio_type_name = db.portfolio_type_name;
+      } catch {
+        // Si algo falla al enriquecer, devolvemos al menos el resto de la información
+      }
+
+      return {
+        id: config.id,
+        id_data_bases: config.id_data_bases,
+        portfolio_type_id,
+        portfolio_type_name,
+        id_city_views: config.id_city_views,
+        name_departament: config.name_departament,
+        name_city: config.name_city,
+        city: config.city,
+        detail: config.detail,
+        state_type_id: config.state_type_id,
+        state_type_name: state.type,
+        created_at: config.created_at,
+        updated_at: config.updated_at,
+        responsible: config.responsible,
+      };
     } catch (error) {
       throw new NotFoundException('No data found for the given id');
     }

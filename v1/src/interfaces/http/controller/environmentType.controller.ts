@@ -7,6 +7,7 @@ import { EnvironmentTypeService } from '@application/services/environmentType.se
 import { EnvironmentType } from '@domain/entities/environmentType.entities';
 import { CreateEnvironmentTypeInput } from '@domain/ports/environmentType.ports';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
+import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils';
 
 /** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
@@ -33,8 +34,17 @@ export class EnvironmentTypeController {
         description: 'El JSON de abajo sirve de guía.',
         schema: { allOf: [{ $ref: getSchemaPath(EnvironmentTypeDto) }], example: createExampleSchema },
     })
-    async create(@Body() environmentTypeDto: EnvironmentTypeDto): Promise<EnvironmentTypeDto> {
-        return this.environmentTypeService.create(environmentTypeDto as CreateEnvironmentTypeInput);
+    async create(@Body() environmentTypeDto: EnvironmentTypeDto) {
+        const created = await this.environmentTypeService.create(environmentTypeDto as CreateEnvironmentTypeInput);
+        return dataOne(created);
+    }
+    // Listado simple para selects (id + label_name)
+    @Get('options')
+    @ApiOperation({ summary: 'Obtener opciones de tipos de entorno para selects' })
+    async options() {
+        const all = await this.environmentTypeService.findAll();
+        const items = all.map((item) => ({ id: item.id, label_name: item.type }));
+        return dataMany(items);
     }
     // Obtener todos los tipos de entorno
     @Get()
@@ -45,11 +55,11 @@ export class EnvironmentTypeController {
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
     async findAll(
-    @Query('type') type?: string,
     @Query('start_date') start_date?: string,
     @Query('end_date') end_date?: string,
-        @Query('page') page?: number,
-        @Query('limit') limit?: number,
+    @Query('type') type?: string,
+    @Query('page') page?: number,
+    @Query('limit') limit?: number,
     ): Promise<PaginatedResult<EnvironmentTypeDto>> {
     const all = await this.environmentTypeService.findAll();
 
@@ -83,8 +93,9 @@ export class EnvironmentTypeController {
     @ApiOperation({ summary: 'Obtener un tipo de entorno por su id' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
-    async findById(@Param('id') id: number): Promise<EnvironmentTypeDto> {
-        return this.environmentTypeService.findById(id);
+    async findById(@Param('id') id: number) {
+        const item = await this.environmentTypeService.findById(id);
+        return dataOne(item);
     }
     // Actualizar un tipo de entorno
     @Put(':id')
@@ -99,8 +110,9 @@ export class EnvironmentTypeController {
     // Eliminar un tipo de entorno
     @Delete(':id')
     @ApiOperation({ summary: 'Eliminar un tipo de entorno' })
-    async delete(@Param('id') id: number): Promise<void> {
-        return this.environmentTypeService.delete(id);
+    async delete(@Param('id') id: number) {
+        await this.environmentTypeService.delete(id);
+        return dataEmpty();
     }
 }
 
