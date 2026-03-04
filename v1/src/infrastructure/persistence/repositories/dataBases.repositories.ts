@@ -114,5 +114,17 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
     const rows = await this.repo.manager.query(sql);
     return rows as VCitiesRow[];
   }
+
+  async runQueryOnBase(
+    baseName: string,
+    sql: string,
+    params: unknown[] = [],
+  ): Promise<Record<string, unknown>[]> {
+    if (!/^[a-zA-Z0-9_]+$/.test(baseName)) {
+      throw new Error('Invalid database name');
+    }
+    const rows = await this.repo.manager.query(sql, params);
+    return (rows ?? []) as Record<string, unknown>[];
+  }
 }
 

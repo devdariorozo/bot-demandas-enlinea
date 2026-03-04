@@ -4,6 +4,7 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { AppLogger } from './infrastructure/logging/appLogger.service';
 import { JsonParseExceptionFilter } from './interfaces/http/filters/jsonParseException.filter';
 import { StandardResponseInterceptor } from './interfaces/http/interceptors/standardResponse.interceptor';
 import { EnvironmentTypeDto, UpdateEnvironmentTypeDto } from '@interfaces/http/dto/environmentType.dto';
@@ -12,6 +13,11 @@ import { PortfolioTypeDto, UpdatePortfolioTypeDto } from '@interfaces/http/dto/p
 import { DataBasesDto, UpdateDataBasesDto } from '@interfaces/http/dto/dataBases.dto';
 import { CreateAttentionScheduleDto, AttentionScheduleDto, UpdateAttentionScheduleDto } from '@interfaces/http/dto/attentionSchedule.dto';
 import { PortfolioCityConfigDto, UpdatePortfolioCityConfigDto } from '@interfaces/http/dto/portfolioCityConfig.dto';
+import { AmountTypeDto, UpdateAmountTypeDto } from '@interfaces/http/dto/amountType.dto';
+import {
+  ManagementDemandsOnlineDto,
+  UpdateManagementDemandsOnlineDto,
+} from '@interfaces/http/dto/managementDemandsOnline.dto';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
@@ -21,6 +27,8 @@ async function bootstrap() {
   // Prefijo global para todas las rutas HTTP
   app.setGlobalPrefix(process.env.GLOBAL_PREFIX ?? 'api/v1');
 
+  const appLogger = app.get(AppLogger);
+  app.useLogger(appLogger);
   const logger = new Logger('Bootstrap');
 
   const corsAllowedOrigins =
@@ -74,6 +82,8 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
     .addTag('dataBases', 'Configuración de bases de datos por entorno y cartera')
     .addTag('attentionSchedule', 'Horarios de atención por cartera')
     .addTag('portfolioCityConfig', 'Configuración de ciudades por cartera')
+    .addTag('amountType', 'Tipo de cuantía (mayor, menor, mínima)')
+    .addTag('managementDemandsOnline', 'Gestión de demandas pendientes')
     .build();
 
   const document = SwaggerModule.createDocument(app, config, {
@@ -91,6 +101,10 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
       UpdateAttentionScheduleDto,
       PortfolioCityConfigDto,
       UpdatePortfolioCityConfigDto,
+      AmountTypeDto,
+      UpdateAmountTypeDto,
+      ManagementDemandsOnlineDto,
+      UpdateManagementDemandsOnlineDto,
     ],
   });
   SwaggerModule.setup('docs', app, document);

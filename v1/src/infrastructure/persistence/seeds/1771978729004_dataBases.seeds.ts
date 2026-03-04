@@ -37,6 +37,7 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
   const now = new Date();
 
   await repo.save([
+    // Primero cartera 1 ordenada por ambientes 1,2,3,4
     // Ambientes 1, 2, 3 (dev, docker, qa) — portfolio 1: miosv2_carteras_QA + listado Cartera Propia
     {
       environment_type_id: 1, // dev
@@ -68,6 +69,19 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
       updated_at: now,
       responsible: 'BOT demands online',
     },
+    // Ambiente 4 (pro) — portfolio 1: solo listado Cartera Propia
+    {
+      environment_type_id: 4, // pro
+      portfolio_type_id: 1,
+      bases: CARTERA_PROPIA_BASES,
+      detail: 'Listado base de datos correspondiente a la cartera propia',
+      state_type_id: 1,
+      created_at: now,
+      updated_at: now,
+      responsible: 'BOT demands online',
+    },
+
+    // Luego cartera 2 ordenada por ambientes 1,2,3,4
     // Ambientes 1, 2, 3 — portfolio 2: Sudameris QA
     {
       environment_type_id: 1,
@@ -94,17 +108,6 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
       portfolio_type_id: 2,
       bases: ['miosv2_cartera_sudameris_qa'],
       detail: 'Listado base de datos correspondiente a la cartera sudameris',
-      state_type_id: 1,
-      created_at: now,
-      updated_at: now,
-      responsible: 'BOT demands online',
-    },
-    // Ambiente 4 (pro) — portfolio 1: solo listado Cartera Propia
-    {
-      environment_type_id: 4, // pro
-      portfolio_type_id: 1,
-      bases: CARTERA_PROPIA_BASES,
-      detail: 'Listado base de datos correspondiente a la cartera propia',
       state_type_id: 1,
       created_at: now,
       updated_at: now,

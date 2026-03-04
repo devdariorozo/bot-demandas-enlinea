@@ -32,5 +32,11 @@ export interface DataBasesRepository {
   delete(id: number): Promise<void>;
   /** Consultar la vista v_cities en la primera base del registro data_bases indicado. */
   fetchVCitiesFromFirstBase(idDataBases: number): Promise<VCitiesRow[]>;
+  /** Ejecutar una consulta SQL en una base externa (nombre en backticks). Parámetros opcionales. */
+  runQueryOnBase(
+    baseName: string,
+    sql: string,
+    params?: unknown[],
+  ): Promise<Record<string, unknown>[]>;
 }
 

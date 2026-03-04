@@ -22,6 +22,15 @@ import { AttentionScheduleModule } from './interfaces/modules/attentionSchedule.
 import { PortfolioCityConfigEntity } from './infrastructure/persistence/entities/portfolioCityConfig.entities';
 import { PortfolioCityConfigMigration1771978729006 } from '@infrastructure/persistence/migrations/1771978729006_portfolioCityConfig.migrations';
 import { PortfolioCityConfigModule } from './interfaces/modules/portfolioCityConfig.module';
+import { AmountTypeEntity } from './infrastructure/persistence/entities/amountType.entities';
+import { AmountTypeMigration1771978729007 } from '@infrastructure/persistence/migrations/1771978729007_amountType.migrations';
+import { AmountTypeModule } from './interfaces/modules/amountType.module';
+import { ManagementDemandsOnlineEntity } from './infrastructure/persistence/entities/managementDemandsOnline.entities';
+import { ManagementDemandsOnlineMigration1771978729008 } from '@infrastructure/persistence/migrations/1771978729008_managementDemandsOnline.migrations';
+import { ManagementDemandsOnlineModule } from './interfaces/modules/managementDemandsOnline.module';
+import { DemandsPendingSyncModule } from './interfaces/modules/demandsPendingSync.module';
+import { BotControlModule } from './interfaces/modules/botControl.module';
+import { LoggerModule } from './infrastructure/logging/logger.module';
 
 @Module({
   imports: [
@@ -38,14 +47,33 @@ import { PortfolioCityConfigModule } from './interfaces/modules/portfolioCityCon
         username: config.get('DB_CONFIG_USER', 'root'),
         password: config.get('DB_CONFIG_PASSWORD', ''),
         database: config.get('DB_CONFIG_DATABASE', 'dbd_demands_online'),
-        entities: [EnvironmentTypeEntity, StateTypeEntity, PortfolioTypeEntity, DataBasesEntity, AttentionScheduleEntity, PortfolioCityConfigEntity],
-        migrations: [EnvironmentTypeMigration1771978729001, StateTypeMigration1771978729002, PortfolioTypeMigration1771978729003, DataBasesMigration1771978729004, AttentionScheduleMigration1771978729005, PortfolioCityConfigMigration1771978729006],
+        entities: [
+          EnvironmentTypeEntity,
+          StateTypeEntity,
+          PortfolioTypeEntity,
+          DataBasesEntity,
+          AttentionScheduleEntity,
+          PortfolioCityConfigEntity,
+          AmountTypeEntity,
+          ManagementDemandsOnlineEntity,
+        ],
+        migrations: [
+          EnvironmentTypeMigration1771978729001,
+          StateTypeMigration1771978729002,
+          PortfolioTypeMigration1771978729003,
+          DataBasesMigration1771978729004,
+          AttentionScheduleMigration1771978729005,
+          PortfolioCityConfigMigration1771978729006,
+          AmountTypeMigration1771978729007,
+          ManagementDemandsOnlineMigration1771978729008,
+        ],
         migrationsTableName: 'migrations',
         synchronize: false,
         logging: config.get('DB_CONFIG_LOGGING') === 'true',
       }),
       inject: [ConfigService],
     }),
+    LoggerModule,
     HealthModule,
     EnvironmentTypeModule,
     StateTypeModule,
@@ -53,6 +81,10 @@ import { PortfolioCityConfigModule } from './interfaces/modules/portfolioCityCon
     DataBasesModule,
     AttentionScheduleModule,
     PortfolioCityConfigModule,
+    AmountTypeModule,
+    ManagementDemandsOnlineModule,
+    BotControlModule,
+    DemandsPendingSyncModule,
   ],
 })
 export class AppModule {}

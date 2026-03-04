@@ -14,6 +14,10 @@ import { AttentionScheduleEntity } from './entities/attentionSchedule.entities';
 import { AttentionScheduleMigration1771978729005 } from './migrations/1771978729005_attentionSchedule.migrations';
 import { PortfolioCityConfigEntity } from './entities/portfolioCityConfig.entities';
 import { PortfolioCityConfigMigration1771978729006 } from './migrations/1771978729006_portfolioCityConfig.migrations';
+import { AmountTypeEntity } from './entities/amountType.entities';
+import { AmountTypeMigration1771978729007 } from './migrations/1771978729007_amountType.migrations';
+import { ManagementDemandsOnlineEntity } from './entities/managementDemandsOnline.entities';
+import { ManagementDemandsOnlineMigration1771978729008 } from './migrations/1771978729008_managementDemandsOnline.migrations';
 
 const dbPort = parseInt(process.env.DB_CONFIG_PORT ?? '3306', 10);
 
@@ -24,8 +28,26 @@ export const dataSource = new DataSource({
   username: process.env.DB_CONFIG_USER ?? 'root',
   password: process.env.DB_CONFIG_PASSWORD ?? '',
   database: process.env.DB_CONFIG_DATABASE ?? 'bot_demandas_online',
-  entities: [EnvironmentTypeEntity, StateTypeEntity, PortfolioTypeEntity, DataBasesEntity, AttentionScheduleEntity, PortfolioCityConfigEntity],
-  migrations: [EnvironmentTypeMigration1771978729001, StateTypeMigration1771978729002, PortfolioTypeMigration1771978729003, DataBasesMigration1771978729004, AttentionScheduleMigration1771978729005, PortfolioCityConfigMigration1771978729006],
+  entities: [
+    EnvironmentTypeEntity,
+    StateTypeEntity,
+    PortfolioTypeEntity,
+    DataBasesEntity,
+    AttentionScheduleEntity,
+    PortfolioCityConfigEntity,
+    AmountTypeEntity,
+    ManagementDemandsOnlineEntity,
+  ],
+  migrations: [
+    EnvironmentTypeMigration1771978729001,
+    StateTypeMigration1771978729002,
+    PortfolioTypeMigration1771978729003,
+    DataBasesMigration1771978729004,
+    AttentionScheduleMigration1771978729005,
+    PortfolioCityConfigMigration1771978729006,
+    AmountTypeMigration1771978729007,
+    ManagementDemandsOnlineMigration1771978729008,
+  ],
   synchronize: false,
   logging: process.env.DB_CONFIG_LOGGING === 'true',
 });

@@ -27,6 +27,8 @@ export interface PortfolioCityConfigRepository {
     id_data_bases: number,
     id_city_views: number,
   ): Promise<PortfolioCityConfig | null>;
+  /** Todas las configuraciones para un id_data_bases (para cruce con BDs externas). */
+  findByDataBases(id_data_bases: number): Promise<PortfolioCityConfig[]>;
   update(config: PortfolioCityConfig): Promise<PortfolioCityConfig>;
   delete(id: number): Promise<void>;
 }

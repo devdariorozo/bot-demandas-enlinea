@@ -104,6 +104,11 @@ export class PortfolioCityConfigRepositoryImpl implements PortfolioCityConfigRep
     return entity ? this.toDomain(entity) : null;
   }
 
+  async findByDataBases(id_data_bases: number): Promise<PortfolioCityConfig[]> {
+    const list = await this.repo.find({ where: { id_data_bases } });
+    return list.map((e) => this.toDomain(e));
+  }
+
   async update(config: PortfolioCityConfig): Promise<PortfolioCityConfig> {
     const entity = this.toEntity(config);
     const saved = await this.repo.save(entity);
