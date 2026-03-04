@@ -19,7 +19,7 @@ export type CreateManagementDemandsOnlineInput = Pick<
   | 'amount_type_id'
   | 'state_type_id'
 > &
-  Partial<Pick<ManagementDemandsOnline, 'user_id' | 'user_name' | 'detail' | 'responsible'>> &
+  Partial<Pick<ManagementDemandsOnline, 'user_id' | 'user_name' | 'management_status' | 'detail' | 'responsible'>> &
   Partial<ManagementDemandsOnline>;
 
 export interface ManagementDemandsOnlineRepository {

@@ -64,6 +64,11 @@ export class ManagementDemandsOnlineDto {
   @IsOptional()
   user_name?: string;
 
+  @ApiPropertyOptional({ example: 'Abierta', description: 'Estado de gestión' })
+  @IsString()
+  @IsOptional()
+  management_status?: string;
+
   @ApiPropertyOptional({
     example: 'Demanda pendiente para ser gestionada por el bot demands online',
     description: 'Detalle',
@@ -149,6 +154,11 @@ export class UpdateManagementDemandsOnlineDto {
   @IsString()
   @IsOptional()
   user_name?: string;
+
+  @ApiPropertyOptional({ example: 'Abierta', description: 'Estado de gestión' })
+  @IsString()
+  @IsOptional()
+  management_status?: string;
 
   @ApiPropertyOptional({ description: 'Detalle' })
   @IsString()

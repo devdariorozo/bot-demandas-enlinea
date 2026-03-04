@@ -3,7 +3,7 @@
 import { DataSource } from 'typeorm';
 import { DataBasesEntity } from '../entities/dataBases.entities';
 
-// Listado Cartera Propia (código front y back igual)
+// Listado completo de bases para cartera propia (producción)
 const CARTERA_PROPIA_BASES = [
   'miosv2_banco_bogota_2024',
   'miosv2_banco_bogota_2025',
@@ -29,8 +29,8 @@ const CARTERA_PROPIA_BASES = [
   'miosv2_bbva_2025',
 ];
 
-// Dev, docker, qa (portfolio 1): miosv2_carteras_QA + listado Cartera Propia
-const BASES_DEV_DOCKER_QA_PORTFOLIO_1 = ['miosv2_carteras_QA', ...CARTERA_PROPIA_BASES];
+// Bases reducidas para entornos no productivos (dev, docker, qa)
+const BASES_PROPIAS_NO_PRO = ['miosv2_carteras_QA', 'miosv2_cartera_mirror'];
 
 export const dataBasesSeeds = async (dataSource: DataSource) => {
   const repo = dataSource.getRepository(DataBasesEntity);
@@ -38,11 +38,11 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
 
   await repo.save([
     // Primero cartera 1 ordenada por ambientes 1,2,3,4
-    // Ambientes 1, 2, 3 (dev, docker, qa) — portfolio 1: miosv2_carteras_QA + listado Cartera Propia
+    // Ambientes 1, 2, 3 (dev, docker, qa) — portfolio 1: solo miosv2_carteras_QA y miosv2_cartera_mirror
     {
       environment_type_id: 1, // dev
       portfolio_type_id: 1,
-      bases: BASES_DEV_DOCKER_QA_PORTFOLIO_1,
+      bases: BASES_PROPIAS_NO_PRO,
       detail: 'Listado base de datos correspondiente a la cartera propia',
       state_type_id: 1,
       created_at: now,
@@ -52,7 +52,7 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
     {
       environment_type_id: 2, // docker
       portfolio_type_id: 1,
-      bases: BASES_DEV_DOCKER_QA_PORTFOLIO_1,
+      bases: BASES_PROPIAS_NO_PRO,
       detail: 'Listado base de datos correspondiente a la cartera propia',
       state_type_id: 1,
       created_at: now,
@@ -62,14 +62,14 @@ export const dataBasesSeeds = async (dataSource: DataSource) => {
     {
       environment_type_id: 3, // qa
       portfolio_type_id: 1,
-      bases: BASES_DEV_DOCKER_QA_PORTFOLIO_1,
+      bases: BASES_PROPIAS_NO_PRO,
       detail: 'Listado base de datos correspondiente a la cartera propia',
       state_type_id: 1,
       created_at: now,
       updated_at: now,
       responsible: 'BOT demands online',
     },
-    // Ambiente 4 (pro) — portfolio 1: solo listado Cartera Propia
+    // Ambiente 4 (pro) — portfolio 1: listado completo de cartera propia
     {
       environment_type_id: 4, // pro
       portfolio_type_id: 1,

@@ -6,12 +6,20 @@ import { BotControlController } from '../http/controller/botControl.controller';
 import { BotControlService } from '@application/services/botControl.service';
 import { DataBasesModule } from './dataBases.module';
 import { AttentionScheduleModule } from './attentionSchedule.module';
+import { BOT_CONTROL_REPOSITORY } from '@domain/ports/botControl.ports';
+import { BotControlRepositoryImpl } from '@infrastructure/persistence/repositories/botControl.repositories';
 
 @Module({
   controllers: [BotControlController],
   imports: [DataBasesModule, AttentionScheduleModule],
-  providers: [BotControlService],
-  exports: [BotControlService],
+  providers: [
+    BotControlService,
+    {
+      provide: BOT_CONTROL_REPOSITORY,
+      useClass: BotControlRepositoryImpl,
+    },
+  ],
+  exports: [BotControlService, { provide: BOT_CONTROL_REPOSITORY, useClass: BotControlRepositoryImpl }],
 })
 export class BotControlModule {}
 

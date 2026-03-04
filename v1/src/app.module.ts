@@ -28,6 +28,8 @@ import { AmountTypeModule } from './interfaces/modules/amountType.module';
 import { ManagementDemandsOnlineEntity } from './infrastructure/persistence/entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from '@infrastructure/persistence/migrations/1771978729008_managementDemandsOnline.migrations';
 import { ManagementDemandsOnlineModule } from './interfaces/modules/managementDemandsOnline.module';
+import { BotControlEntity } from './infrastructure/persistence/entities/botControl.entities';
+import { BotControlMigration1771978729009 } from '@infrastructure/persistence/migrations/1771978729009_botControl.migrations';
 import { DemandsPendingSyncModule } from './interfaces/modules/demandsPendingSync.module';
 import { BotControlModule } from './interfaces/modules/botControl.module';
 import { LoggerModule } from './infrastructure/logging/logger.module';
@@ -56,6 +58,7 @@ import { LoggerModule } from './infrastructure/logging/logger.module';
           PortfolioCityConfigEntity,
           AmountTypeEntity,
           ManagementDemandsOnlineEntity,
+          BotControlEntity,
         ],
         migrations: [
           EnvironmentTypeMigration1771978729001,
@@ -66,6 +69,7 @@ import { LoggerModule } from './infrastructure/logging/logger.module';
           PortfolioCityConfigMigration1771978729006,
           AmountTypeMigration1771978729007,
           ManagementDemandsOnlineMigration1771978729008,
+          BotControlMigration1771978729009,
         ],
         migrationsTableName: 'migrations',
         synchronize: false,

@@ -18,7 +18,7 @@ import { BotControlService } from './botControl.service';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
 
 const DEFAULT_STATE_TYPE_ID = 1;
-const LAW_SUITS_PK = 'id'; // law_suits se consulta por id = lawsuit_id
+const LAWSUITS_PK = 'id'; // lawsuits se consulta por id = lawsuit_id
 
 @Injectable()
 export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy {
@@ -38,13 +38,61 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     private readonly appLogger: AppLogger,
   ) {}
 
-  /** Ejecuta el sync: por cada data_bases y cada base, cruce lca × pcc, enriquecimiento law_suits, resolución amount_type, creación en management_demands_online. */
+  /** Ejecuta el sync: por cada data_bases y cada base, cruce lawsuits × lca × pcc, resolución amount_type, creación en management_demands_online. */
   async runSync(): Promise<{ processed: number; created: number; skipped: number }> {
     let created = 0;
     let skipped = 0;
     let processed = 0;
 
-    const dbList = await this.dataBasesRepository.findAll();
+    const currentDataBasesId = this.botControlService.getCurrentDataBasesId();
+    if (!currentDataBasesId) {
+      this.appLogger.structured({
+        level: 'debug',
+        context: DemandsPendingSyncService.name,
+        type: 'SYNC_JOB',
+        status: 'WARN',
+        message:
+          'runSync no se ejecuta porque no hay configuración data_bases seleccionada en el bot.',
+      });
+      return { processed, created, skipped };
+    }
+
+    let dbRecord;
+    try {
+      dbRecord = await this.dataBasesRepository.findById(currentDataBasesId);
+    } catch {
+      this.appLogger.structured({
+        level: 'warn',
+        context: DemandsPendingSyncService.name,
+        type: 'SYNC_JOB',
+        status: 'WARN',
+        message:
+          'runSync no se ejecuta porque la configuración data_bases seleccionada no existe.',
+        meta: { data_bases_id: currentDataBasesId },
+      });
+      return { processed, created, skipped };
+    }
+
+    // Validar que la cartera (portfolio_type) esté activa según state_type
+    const portfolioState = dbRecord.portfolio_state_type_name?.trim().toLowerCase();
+    if (!portfolioState || portfolioState !== 'active') {
+      this.appLogger.structured({
+        level: 'warn',
+        context: DemandsPendingSyncService.name,
+        type: 'SYNC_JOB',
+        status: 'WARN',
+        message:
+          'runSync no se ejecuta porque la cartera (portfolio) de la configuración data_bases seleccionada no está activa.',
+        meta: {
+          data_bases_id: currentDataBasesId,
+          portfolio_type_id: dbRecord.portfolio_type_id,
+          portfolio_state_type_name: dbRecord.portfolio_state_type_name ?? null,
+        },
+      });
+      return { processed, created, skipped };
+    }
+
+    const dbList = [dbRecord];
     this.appLogger.structured({
       level: 'debug',
       context: DemandsPendingSyncService.name,
@@ -65,7 +113,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
       const idCityViews = configs.map((c) => c.id_city_views);
       const configByCityId = new Map(configs.map((c) => [c.id_city_views, c]));
 
-       this.appLogger.structured({
+      this.appLogger.structured({
         level: 'debug',
         context: DemandsPendingSyncService.name,
         type: 'SYNC_JOB',
@@ -83,25 +131,37 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
 
       for (const baseName of dbRecord.bases) {
         try {
-          const lcaRows = await this.fetchLawsuitCourtAssignments(baseName, idCityViews);
+          // 1) Consultar primero lawsuits pendientes (status Pendiente y sin deleted_at)
+          //    y cruzarlas con lawsuit_court_assignments por lawsuit_id y city_id ∈ idCityViews.
+          const pendingRows = await this.fetchPendingLawSuitsWithAssignments(
+            baseName,
+            idCityViews,
+          );
           this.appLogger.structured({
             level: 'debug',
             context: DemandsPendingSyncService.name,
             type: 'SYNC_JOB',
             status: 'OK',
-            message: 'Resultado de lawsuit_court_assignments por base',
+            message:
+              'Resultado de lawsuits pendientes con lawsuit_court_assignments por base',
             meta: {
               dataBasesId: dbRecord.id,
               baseName,
-              lawsuitCourtAssignmentsCount: lcaRows.length,
+              pendingCount: pendingRows.length,
             },
           });
 
-          for (const row of lcaRows) {
+          for (const row of pendingRows) {
             processed++;
-            const lawsuitCourtAssignmentsId = Number(row.lawsuit_court_assignments_id ?? row.id);
+            const lawsuitCourtAssignmentsId = Number(
+              row.lawsuit_court_assignments_id ?? row.id,
+            );
             const lawsuitId = Number(row.lawsuit_id);
-            const clientId = Number(row.client_id);
+            const clientId = Number(
+              (row.assignment_client_id as number | undefined) ??
+                (row.lawsuit_client_id as number | undefined) ??
+                (row.client_id as number),
+            );
             const cityId = Number(row.city_id);
             const pcc = configByCityId.get(cityId);
             if (!pcc) {
@@ -133,7 +193,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
                 context: DemandsPendingSyncService.name,
                 type: 'SYNC_JOB',
                 status: 'OK',
-                message: 'Registro ya existe en management_demands_online; se omite',
+                message: 'Registro ya existe en management_demands_online para esta base; se omite',
                 meta: {
                   baseName,
                   dataBasesId: dbRecord.id,
@@ -144,26 +204,11 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
               skipped++;
               continue;
             }
-            const lawSuitRow = await this.fetchLawSuitByLawsuitId(baseName, lawsuitId);
-            if (!lawSuitRow) {
-              this.appLogger.structured({
-                level: 'debug',
-                context: DemandsPendingSyncService.name,
-                type: 'SYNC_JOB',
-                status: 'WARN',
-                message: 'No se encontró registro en law_suits para este lawsuit_id; se omite',
-                meta: {
-                  baseName,
-                  dataBasesId: dbRecord.id,
-                  lawsuitCourtAssignmentsId,
-                  lawsuitId,
-                },
-              });
-              skipped++;
-              continue;
-            }
-            const typeQuantity = lawSuitRow.type_quantity != null ? String(lawSuitRow.type_quantity) : null;
-            const amountType = typeQuantity ? await this.amountTypeRepository.findByDuplicate(typeQuantity) : null;
+            const typeQuantity =
+              row.type_quantity != null ? String(row.type_quantity) : null;
+            const amountType = typeQuantity
+              ? await this.amountTypeRepository.findByDuplicate(typeQuantity)
+              : null;
             if (!amountType) {
               this.appLogger.structured({
                 level: 'debug',
@@ -185,16 +230,17 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
             const input: CreateManagementDemandsOnlineInput = {
               name_data_base: baseName,
               portfolio_city_config_id: pcc.id,
-              campaign_id: Number(lawSuitRow.campaign_id ?? 0),
+              campaign_id: Number(row.campaign_id ?? 0),
               lawsuit_id: lawsuitId,
               lawsuit_court_assignments_id: lawsuitCourtAssignmentsId,
               client_id: clientId,
-              path_law_doc: String(lawSuitRow.path_law_doc ?? ''),
-              lawsuit_status: String(lawSuitRow.lawsuit_status ?? ''),
+              path_law_doc: String(row.path_law_doc ?? ''),
+              lawsuit_status: String(row.lawsuit_status ?? ''),
               amount_type_id: amountType.id,
               state_type_id: DEFAULT_STATE_TYPE_ID,
-              user_id: lawSuitRow.user_id != null ? Number(lawSuitRow.user_id) : undefined,
-              user_name: lawSuitRow.user_name != null ? String(lawSuitRow.user_name) : undefined,
+              user_id: 1,
+              user_name: 'BOT demands online',
+              management_status: 'Abierta',
               detail: 'Demanda pendiente sincronizada por job',
               responsible: 'BOT demands online sync',
             };
@@ -233,23 +279,38 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     return { processed, created, skipped };
   }
 
-  private async fetchLawsuitCourtAssignments(
+  /**
+   * Consulta lawsuits primero (solo Pendiente y sin deleted_at) y cruza con
+   * lawsuit_court_assignments por lawsuit_id, filtrando únicamente por city_id
+   * incluidos en idCityViews.
+   */
+  private async fetchPendingLawSuitsWithAssignments(
     baseName: string,
     idCityViews: number[],
   ): Promise<Record<string, unknown>[]> {
     if (idCityViews.length === 0) return [];
     const placeholders = idCityViews.map(() => '?').join(',');
-    const sql = `SELECT id AS lawsuit_court_assignments_id, lawsuit_id, client_id, city_id FROM \`${baseName}\`.lawsuit_court_assignments WHERE city_id IN (${placeholders})`;
+    const sql = `
+      SELECT
+        l.id AS lawsuit_id,
+        l.client_id AS lawsuit_client_id,
+        l.path_law_doc,
+        l.lawsuit_status,
+        l.type_quantity,
+        l.user_id,
+        l.user_name,
+        l.campaign_id,
+        lca.id AS lawsuit_court_assignments_id,
+        lca.client_id AS assignment_client_id,
+        lca.city_id
+      FROM \`${baseName}\`.lawsuits l
+      INNER JOIN \`${baseName}\`.lawsuit_court_assignments lca
+        ON lca.lawsuit_id = l.id
+      WHERE l.lawsuit_status = 'Pendiente'
+        AND l.deleted_at IS NULL
+        AND lca.city_id IN (${placeholders})
+    `;
     return this.dataBasesRepository.runQueryOnBase(baseName, sql, idCityViews);
-  }
-
-  private async fetchLawSuitByLawsuitId(
-    baseName: string,
-    lawsuitId: number,
-  ): Promise<Record<string, unknown> | null> {
-    const sql = `SELECT path_law_doc, lawsuit_status, type_quantity, user_id, user_name, campaign_id FROM \`${baseName}\`.law_suits WHERE ${LAW_SUITS_PK} = ? LIMIT 1`;
-    const rows = await this.dataBasesRepository.runQueryOnBase(baseName, sql, [lawsuitId]);
-    return rows.length > 0 ? rows[0] : null;
   }
 
   getIntervalMinutes(): number {

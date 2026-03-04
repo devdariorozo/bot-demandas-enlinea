@@ -18,6 +18,7 @@ export class ManagementDemandsOnlineMigration1771978729008 implements MigrationI
         amount_type_id INT NOT NULL,
         user_id INT NOT NULL DEFAULT 0,
         user_name VARCHAR(100) NOT NULL DEFAULT 'BOT demands online',
+        management_status VARCHAR(100) NOT NULL DEFAULT 'Abierta',
         detail VARCHAR(500) NOT NULL DEFAULT 'Demanda pendiente para ser gestionada por el bot demands online',
         state_type_id INT NOT NULL DEFAULT 1,
         created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -24,8 +24,9 @@ async function bootstrap() {
     bufferLogs: true,
   });
 
-  // Prefijo global para todas las rutas HTTP
-  app.setGlobalPrefix(process.env.GLOBAL_PREFIX ?? 'api/v1');
+  // Prefijo global: api/{VERSION_API} (ej. api/v1)
+  const versionApi = process.env.VERSION_API ?? 'v1';
+  app.setGlobalPrefix(`api/${versionApi}`);
 
   const appLogger = app.get(AppLogger);
   app.useLogger(appLogger);
@@ -62,8 +63,8 @@ async function bootstrap() {
   app.useGlobalFilters(new JsonParseExceptionFilter());
   app.useGlobalInterceptors(new StandardResponseInterceptor());
 
-  const swaggerTitle =
-    process.env.NOMBRE_SERVICIO_SWAGGER ?? 'Bot Demandas en Línea';
+  const projectName = process.env.PROJECT_NAME ?? 'bot-demands-online';
+  const swaggerTitle = `${projectName}-${versionApi}`;
 
   const config = new DocumentBuilder()
     .setTitle(swaggerTitle)

@@ -9,7 +9,9 @@ export class DataBases {
     bases: string[]; // Array bases de datos asociadas (ej: ['ejemplo1', 'ejemplo2'])
     detail: string;
     state_type_id: number;   // FK al state_type.id
-    state_type_name?: string; // Nombre del tipo de estado
+    state_type_name?: string; // Nombre del tipo de estado (de data_bases)
+    /** Estado de la cartera (portfolio_type): type en state_type para portfolio_type.state_type_id. Se usa para validar si la cartera está activa. */
+    portfolio_state_type_name?: string;
     /** Solo en respuestas de listado: "portfolio_type_name environment_type_name" o solo portfolio si env es "pro". */
     label_data_base?: string;
     created_at: Date;

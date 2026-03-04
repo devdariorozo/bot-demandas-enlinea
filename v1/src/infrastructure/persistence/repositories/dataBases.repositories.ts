@@ -79,13 +79,51 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
     }));
   }
 
-  // Obtener un registro por su id
+  // Obtener un registro por su id (con state_type de data_bases y state_type de portfolio para validar cartera activa)
   async findById(id: number): Promise<DataBases> {
-    const entity = await this.repo.findOneBy({ id });
-    if (!entity) {
+    const raw = await this.repo
+      .createQueryBuilder('db')
+      .leftJoin(EnvironmentTypeEntity, 'env', 'env.id = db.environment_type_id')
+      .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = db.portfolio_type_id')
+      .leftJoin(StateTypeEntity, 'st', 'st.id = db.state_type_id')
+      .leftJoin(StateTypeEntity, 'st_pf', 'st_pf.id = pf.state_type_id')
+      .select([
+        'db.id',
+        'db.environment_type_id',
+        'db.portfolio_type_id',
+        'db.bases',
+        'db.detail',
+        'db.state_type_id',
+        'db.created_at',
+        'db.updated_at',
+        'db.responsible',
+      ])
+      .addSelect('env.type', 'environment_type_name')
+      .addSelect('pf.type', 'portfolio_type_name')
+      .addSelect('st.type', 'state_type_name')
+      .addSelect('st_pf.type', 'portfolio_state_type_name')
+      .where('db.id = :id', { id })
+      .getRawOne<Record<string, unknown> | undefined>();
+
+    if (!raw) {
       throw new Error('DataBases record not found');
     }
-    return entity;
+
+    return {
+      id: raw.db_id as number,
+      environment_type_id: raw.db_environment_type_id as number,
+      environment_type_name: (raw.environment_type_name as string) ?? '',
+      portfolio_type_id: raw.db_portfolio_type_id as number,
+      portfolio_type_name: (raw.portfolio_type_name as string) ?? '',
+      bases: raw.db_bases as string[],
+      detail: raw.db_detail as string,
+      state_type_id: raw.db_state_type_id as number,
+      state_type_name: (raw.state_type_name as string) ?? '',
+      portfolio_state_type_name: (raw.portfolio_state_type_name as string) ?? undefined,
+      created_at: raw.db_created_at as Date,
+      updated_at: raw.db_updated_at as Date,
+      responsible: raw.db_responsible as string,
+    };
   }
 
   // Actualizar un registro de bases

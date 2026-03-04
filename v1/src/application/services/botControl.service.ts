@@ -1,42 +1,134 @@
 // Responsabilidad: controlar el estado de ejecución del bot (start/stop/status)
 // y validar si existen carteras activas y estamos dentro de días/horarios de atención.
 
-import { Inject, Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 
-import { DATABASES_REPOSITORY, DataBasesRepository } from '@domain/ports/dataBases.ports';
 import {
   ATTENTION_SCHEDULE_REPOSITORY,
   AttentionScheduleRepository,
 } from '@domain/ports/attentionSchedule.ports';
+import {
+  BOT_CONTROL_REPOSITORY,
+  BotControlRepository,
+} from '@domain/ports/botControl.ports';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
+import { DataBasesService } from './dataBases.service';
 
 export interface BotStatus extends Record<string, unknown> {
   running: boolean;
   reason?: string;
   timestamp: string;
+  data_bases_id?: number;
+  label_data_base?: string;
+  responsible?: string;
+  portfolio_type_name?: string;
+  environment_type_id?: number;
+  environment_type_name?: string;
+  data_bases?: Array<{
+    id: number;
+    bases: string[];
+    label_data_base?: string;
+  }>;
 }
 
 @Injectable()
-export class BotControlService {
+export class BotControlService implements OnModuleInit {
   private running = false;
+  private currentDataBasesId: number | null = null;
 
   constructor(
-    @Inject(DATABASES_REPOSITORY)
-    private readonly dataBasesRepository: DataBasesRepository,
     @Inject(ATTENTION_SCHEDULE_REPOSITORY)
     private readonly attentionScheduleRepository: AttentionScheduleRepository,
+    private readonly dataBasesService: DataBasesService,
     private readonly appLogger: AppLogger,
+    @Inject(BOT_CONTROL_REPOSITORY)
+    private readonly botControlRepository: BotControlRepository,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    const runningIds = await this.botControlRepository.findRunningIds();
+    if (runningIds.length === 1) {
+      this.running = true;
+      this.currentDataBasesId = runningIds[0];
+      this.appLogger.structured({
+        level: 'log',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'OK',
+        message: 'Estado del bot rehidratado desde base de datos',
+        meta: { data_bases_id: this.currentDataBasesId },
+      });
+    } else if (runningIds.length > 1) {
+      this.appLogger.structured({
+        level: 'warn',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'WARN',
+        message:
+          'Varios bots marcados como en ejecución en BD; el job de sync usará el primero',
+        meta: { running_ids: runningIds },
+      });
+      this.running = true;
+      this.currentDataBasesId = runningIds[0];
+    }
+  }
 
   isRunning(): boolean {
     return this.running;
   }
 
-  async start(): Promise<BotStatus> {
-    const check = await this.checkRuntimeConditions();
+  getCurrentDataBasesId(): number | null {
+    return this.currentDataBasesId;
+  }
+
+  async start(data_bases_id?: number): Promise<BotStatus> {
+    const dbId = Number(data_bases_id);
+    if (!Number.isInteger(dbId) || dbId <= 0) {
+      const status = this.buildStatus(false, 'data_bases_id inválido o no proporcionado');
+      this.appLogger.structured({
+        level: 'warn',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'WARN',
+        message: 'Intento de iniciar el bot sin data_bases_id válido',
+        meta: status,
+      });
+      return status;
+    }
+
+    // Si ya hay un registro en bot_control con este data_bases_id en ejecución,
+    // no permitimos volver a iniciarlo: respondemos con conflicto 409.
+    const existingForId = await this.botControlRepository.findByDataBasesId(dbId);
+    if (existingForId?.running) {
+      const reason = 'Ya existe un bot en ejecución para esta configuración de data_bases';
+      this.appLogger.structured({
+        level: 'warn',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'WARN',
+        message:
+          'Intento de iniciar el bot para una configuración que ya está marcada como en ejecución',
+        meta: {
+          data_bases_id: dbId,
+          reason,
+        },
+      });
+      throw new ConflictException(reason);
+    }
+
+    const check = await this.checkRuntimeConditions(dbId);
     if (!check.ok) {
       this.running = false;
-      const status = this.buildStatus(false, check.reason);
+      this.currentDataBasesId = null;
+      const reason = check.reason;
+      const status = this.buildStatus(false, reason);
+      await this.persistState(dbId, false, reason);
       this.appLogger.structured({
         level: 'warn',
         context: BotControlService.name,
@@ -47,8 +139,38 @@ export class BotControlService {
       });
       return status;
     }
+
+    // Regla de seguridad: solo un bot en ejecución por cartera (portfolio).
+    const targetDb = await this.dataBasesService.findById(dbId);
+    const conflictId = await this.findConflictWithSamePortfolio(
+      dbId,
+      targetDb.portfolio_type_id,
+    );
+    if (conflictId) {
+      const reason =
+        'Ya existe un bot en ejecución para esta cartera en otra configuración de data_bases';
+      this.appLogger.structured({
+        level: 'warn',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'WARN',
+        message:
+          'Intento de iniciar el bot para una cartera que ya tiene otro bot en ejecución',
+        meta: {
+          data_bases_id: dbId,
+          conflicting_data_bases_id: conflictId,
+          reason,
+        },
+      });
+      throw new ConflictException(reason);
+    }
+
+    const now = new Date();
     this.running = true;
-    const status = this.buildStatus(true, 'Bot iniciado y listo para procesar demandas pendientes');
+    this.currentDataBasesId = dbId;
+    const reason = 'Bot iniciado y listo para procesar demandas pendientes';
+    const status = this.buildStatus(true, reason, dbId, now);
+    await this.persistState(dbId, true, reason);
     this.appLogger.structured({
       level: 'log',
       context: BotControlService.name,
@@ -60,9 +182,47 @@ export class BotControlService {
     return status;
   }
 
-  async stop(): Promise<BotStatus> {
+  async stop(data_bases_id?: number): Promise<BotStatus> {
+    const rawTargetId = data_bases_id ?? this.currentDataBasesId ?? undefined;
+    const targetId = typeof rawTargetId === 'number' ? rawTargetId : Number(rawTargetId);
+
+    if (!Number.isInteger(targetId) || targetId <= 0) {
+      throw new NotFoundException('La configuración seleccionada no existe');
+    }
+
+    // Validamos que la configuración data_bases exista.
+    try {
+      await this.dataBasesService.findById(targetId);
+    } catch {
+      throw new NotFoundException('La configuración seleccionada no existe');
+    }
+
+    // Validamos que haya un registro en bot_control y que esté en ejecución.
+    const existing = await this.botControlRepository.findByDataBasesId(targetId);
+    if (!existing || !existing.running) {
+      const reason = 'El bot ya se encuentra detenido para esta configuración de data_bases';
+      this.appLogger.structured({
+        level: 'warn',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'WARN',
+        message:
+          'Intento de detener el bot para una configuración que no está en ejecución o no tiene registro de control',
+        meta: {
+          data_bases_id: targetId,
+          reason,
+        },
+      });
+      throw new ConflictException(reason);
+    }
+
     this.running = false;
-    const status = this.buildStatus(false, 'Bot detenido manualmente');
+    this.currentDataBasesId = null;
+    const now = new Date();
+    const reason = 'Bot detenido';
+    const status = this.buildStatus(false, reason, targetId, now);
+    await this.persistState(targetId, false, reason);
+
     this.appLogger.structured({
       level: 'log',
       context: BotControlService.name,
@@ -74,26 +234,131 @@ export class BotControlService {
     return status;
   }
 
-  async status(): Promise<BotStatus> {
-    const check = await this.checkRuntimeConditions();
-    const reason = this.running ? check.reason : 'Bot detenido';
-    const status = this.buildStatus(this.running && check.ok, reason);
-    this.appLogger.structured({
-      level: 'debug',
-      context: BotControlService.name,
-      type: 'BOT_STATE',
-      status: status.running ? 'OK' : 'WARN',
-      message: 'Consulta de estado del bot',
-      meta: status,
-    });
-    return status;
+  async status(data_bases_id?: number): Promise<BotStatus[]> {
+    try {
+      const hasValidFilter =
+        typeof data_bases_id === 'number' &&
+        Number.isInteger(data_bases_id) &&
+        data_bases_id > 0;
+
+      const buildFromRecord = async (record: {
+        data_bases_id: number;
+        running: boolean;
+        reason?: string | null;
+        last_started_at?: Date | null;
+        last_stopped_at?: Date | null;
+        created_at?: Date;
+        updated_at?: Date;
+        responsible?: string;
+      }): Promise<BotStatus> => {
+        const runningForId = !!record.running;
+        const reason =
+          record.reason ?? (runningForId ? 'Bot en ejecución' : 'Bot detenido');
+
+        const tsSource = runningForId
+          ? record.last_started_at ?? record.updated_at ?? record.created_at
+          : record.last_stopped_at ?? record.updated_at ?? record.created_at;
+
+        let label_data_base: string | undefined;
+        try {
+          const db = await this.dataBasesService.findById(record.data_bases_id);
+          label_data_base = db.label_data_base;
+        } catch {
+          label_data_base = undefined;
+        }
+
+        const timestamp = this.formatDateTime(tsSource ?? new Date());
+
+        const status: BotStatus = {
+          data_bases_id: record.data_bases_id,
+          label_data_base,
+          running: runningForId,
+          reason,
+          timestamp,
+          responsible: record.responsible,
+        };
+
+        this.appLogger.structured({
+          level: 'debug',
+          context: BotControlService.name,
+          type: 'BOT_STATE',
+          status: status.running ? 'OK' : 'WARN',
+          message: 'Consulta de estado del bot',
+          meta: status,
+        });
+        return status;
+      };
+
+      if (hasValidFilter) {
+        const id = data_bases_id as number;
+        let record = await this.botControlRepository.findByDataBasesId(id);
+
+        if (!record) {
+          // Si no existe registro para este data_bases_id, lo creamos detenido.
+          await this.persistState(id, false, 'Bot detenido');
+          record = await this.botControlRepository.findByDataBasesId(id);
+        }
+
+        if (record) {
+          const one = await buildFromRecord(record);
+          return [one];
+        }
+
+        // Si no hay registro, devolvemos un estado básico sin contexto adicional.
+        let label_data_base: string | undefined;
+        try {
+          const db = await this.dataBasesService.findById(id);
+          label_data_base = db.label_data_base;
+        } catch {
+          label_data_base = undefined;
+        }
+        const now = new Date();
+        const fallback: BotStatus = {
+          data_bases_id: id,
+          label_data_base,
+          running: false,
+          reason: 'Bot detenido',
+          timestamp: this.formatDateTime(now),
+          responsible: 'BOT demands online',
+        };
+        return [fallback];
+      }
+
+      // Sin data_bases_id: listar únicamente lo que exista en la tabla bot_control
+      // con el formato simplificado que necesitas para UI.
+      const all = await this.botControlRepository.findAll();
+      const results: BotStatus[] = [];
+      for (const record of all) {
+        const status = await buildFromRecord(record);
+        results.push(status);
+      }
+      return results;
+    } catch (err) {
+      const error = err as Error;
+      this.appLogger.structured({
+        level: 'error',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'ERROR',
+        message: 'Error al obtener el estado del bot',
+        meta: {
+          data_bases_id,
+          error: error.message,
+        },
+        stack: error.stack,
+      });
+      // Degradamos a lista vacía para evitar 500 en el endpoint.
+      return [];
+    }
   }
 
   /**
    * Valida si existen carteras activas y si estamos dentro de los días/horarios de atención.
    * No modifica el flag interno de running.
    */
-  async checkRuntimeConditions(): Promise<{ ok: boolean; reason?: string }> {
+  async checkRuntimeConditions(
+    data_bases_id?: number,
+  ): Promise<{ ok: boolean; reason?: string }> {
     const now = new Date();
     const dayEs = this.getCurrentDayEs(now);
     const minutesNow = this.timeToMinutes(`${now.getHours().toString().padStart(2, '0')}:${now
@@ -101,52 +366,163 @@ export class BotControlService {
       .toString()
       .padStart(2, '0')}`);
 
-    const allBases = await this.dataBasesRepository.findAll();
-    const activeBases = allBases.filter(
-      (b) => b.state_type_name && b.state_type_name.toLowerCase() === 'active',
-    );
-
-    if (activeBases.length === 0) {
-      return { ok: false, reason: 'No hay carteras activas para trabajar' };
+    const targetDbId = data_bases_id ?? this.currentDataBasesId;
+    if (!targetDbId) {
+      return { ok: false, reason: 'No hay configuración data_bases seleccionada para el bot' };
     }
 
-    const portfolioIds = Array.from(
-      new Set(activeBases.map((b) => b.portfolio_type_id).filter((id) => typeof id === 'number')),
+    let db;
+    try {
+      db = await this.dataBasesService.findById(targetDbId);
+    } catch {
+      return { ok: false, reason: 'La configuración data_bases seleccionada no existe' };
+    }
+
+    if (!db.state_type_name || db.state_type_name.toLowerCase() !== 'active') {
+      return { ok: false, reason: 'La configuración data_bases seleccionada no está activa' };
+    }
+
+    const schedules = await this.attentionScheduleRepository.findByPortfolio(db.portfolio_type_id);
+    const activeSchedules = schedules.filter(
+      (sc) => sc.state_type_name && sc.state_type_name.toLowerCase() === 'active',
     );
 
-    let hasValidSchedule = false;
-
-    for (const portfolioId of portfolioIds) {
-      const schedules = await this.attentionScheduleRepository.findByPortfolio(portfolioId);
-      const activeSchedules = schedules.filter(
-        (sc) => sc.state_type_name && sc.state_type_name.toLowerCase() === 'active',
-      );
-      for (const sc of activeSchedules) {
-        const includesDay = Array.isArray(sc.days) && sc.days.includes(dayEs);
-        if (!includesDay) continue;
-        const start = this.timeToMinutes(sc.start_time);
-        const end = this.timeToMinutes(sc.end_time);
-        if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-        if (minutesNow >= start && minutesNow <= end) {
-          hasValidSchedule = true;
-          break;
-        }
-      }
-      if (hasValidSchedule) break;
-    }
+    const hasValidSchedule = activeSchedules.some((sc) => {
+      const includesDay = Array.isArray(sc.days) && sc.days.includes(dayEs);
+      if (!includesDay) return false;
+      const start = this.timeToMinutes(sc.start_time);
+      const end = this.timeToMinutes(sc.end_time);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+      return minutesNow >= start && minutesNow <= end;
+    });
 
     if (!hasValidSchedule) {
-      return { ok: false, reason: 'No se encuentra dentro de los días u horarios de atención' };
+      return {
+        ok: false,
+        reason:
+          'No se encuentra dentro de los días u horarios de atención para la configuración data_bases seleccionada',
+      };
     }
 
     return { ok: true };
   }
 
-  private buildStatus(running: boolean, reason?: string): BotStatus {
+  private async findConflictWithSamePortfolio(
+    currentDataBasesId: number,
+    portfolio_type_id: number,
+  ): Promise<number | null> {
+    const runningIds = await this.botControlRepository.findRunningIds();
+    const otherIds = runningIds.filter((id) => id !== currentDataBasesId);
+    if (otherIds.length === 0) {
+      return null;
+    }
+
+    for (const id of otherIds) {
+      try {
+        const db = await this.dataBasesService.findById(id);
+        if (db.portfolio_type_id === portfolio_type_id) {
+          return id;
+        }
+      } catch {
+        // Si la configuración data_bases no existe para ese id, ignoramos ese registro "huérfano".
+        continue;
+      }
+    }
+
+    return null;
+  }
+
+  private buildStatus(
+    running: boolean,
+    reason?: string,
+    data_bases_id?: number,
+    baseDate?: Date,
+  ): BotStatus {
+    const ref = baseDate ?? new Date();
     return {
       running,
       reason,
-      timestamp: new Date().toISOString(),
+      data_bases_id,
+      timestamp: this.formatDateTime(ref),
+    };
+  }
+
+  /**
+   * Persiste en la tabla bot_control el último estado conocido del bot
+   * para una configuración concreta de data_bases.
+   */
+  private async persistState(
+    data_bases_id: number,
+    running: boolean,
+    reason?: string,
+  ): Promise<void> {
+    const now = new Date();
+    try {
+      await this.botControlRepository.upsertForDataBases({
+        data_bases_id,
+        running,
+        responsible: 'BOT demands online',
+        reason,
+        ...(running ? { last_started_at: now } : { last_stopped_at: now }),
+      });
+    } catch (err) {
+      const error = err as Error;
+      this.appLogger.structured({
+        level: 'error',
+        context: BotControlService.name,
+        type: 'BOT_STATE',
+        status: 'ERROR',
+        message: 'No se pudo persistir el estado del bot en bot_control',
+        meta: {
+          data_bases_id,
+          running,
+          error: error.message,
+        },
+        stack: error.stack,
+      });
+    }
+  }
+
+  /**
+   * Construye un resumen del entorno/cartera actual:
+   * - environment_type_id / environment_type_name
+   * - portfolio_type_id / portfolio_type_name
+   * - data_bases asociadas (id y bases)
+   */
+  private async buildCurrentContextSummary(
+    data_bases_id: number | undefined,
+    hadRecord: boolean,
+  ): Promise<
+    Pick<
+      BotStatus,
+      'environment_type_id' | 'environment_type_name' | 'portfolio_type_name' | 'data_bases'
+    >
+  > {
+    const targetId = data_bases_id;
+    if (!targetId) {
+      return {};
+    }
+
+    let db;
+    try {
+      db = await this.dataBasesService.findById(targetId);
+    } catch {
+      return {};
+    }
+
+    return {
+      environment_type_id: db.environment_type_id,
+      environment_type_name: db.environment_type_name,
+      portfolio_type_name: db.portfolio_type_name,
+      data_bases: hadRecord
+        ? [
+            {
+              id: db.id,
+              bases: db.bases,
+              label_data_base: db.label_data_base,
+            },
+          ]
+        : [],
     };
   }
 
@@ -159,6 +535,17 @@ export class BotControlService {
   private timeToMinutes(time: string): number {
     const [h, m] = time.split(':').map(Number);
     return h * 60 + m;
+  }
+
+  private formatDateTime(date: Date): string {
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const year = date.getFullYear();
+    const month = pad(date.getMonth() + 1);
+    const day = pad(date.getDate());
+    const hours = pad(date.getHours());
+    const minutes = pad(date.getMinutes());
+    const seconds = pad(date.getSeconds());
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
   }
 }
 

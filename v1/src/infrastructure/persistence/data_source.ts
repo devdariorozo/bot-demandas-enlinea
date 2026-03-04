@@ -18,6 +18,8 @@ import { AmountTypeEntity } from './entities/amountType.entities';
 import { AmountTypeMigration1771978729007 } from './migrations/1771978729007_amountType.migrations';
 import { ManagementDemandsOnlineEntity } from './entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from './migrations/1771978729008_managementDemandsOnline.migrations';
+import { BotControlEntity } from './entities/botControl.entities';
+import { BotControlMigration1771978729009 } from './migrations/1771978729009_botControl.migrations';
 
 const dbPort = parseInt(process.env.DB_CONFIG_PORT ?? '3306', 10);
 
@@ -37,6 +39,7 @@ export const dataSource = new DataSource({
     PortfolioCityConfigEntity,
     AmountTypeEntity,
     ManagementDemandsOnlineEntity,
+    BotControlEntity,
   ],
   migrations: [
     EnvironmentTypeMigration1771978729001,
@@ -47,6 +50,7 @@ export const dataSource = new DataSource({
     PortfolioCityConfigMigration1771978729006,
     AmountTypeMigration1771978729007,
     ManagementDemandsOnlineMigration1771978729008,
+    BotControlMigration1771978729009,
   ],
   synchronize: false,
   logging: process.env.DB_CONFIG_LOGGING === 'true',

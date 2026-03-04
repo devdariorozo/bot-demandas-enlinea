@@ -40,6 +40,9 @@ export class ManagementDemandsOnlineEntity {
   @Column({ length: 100, default: 'BOT demands online' })
   user_name: string;
 
+  @Column({ length: 100, default: 'Abierta' })
+  management_status: string;
+
   @Column({ length: 500, default: 'Demanda pendiente para ser gestionada por el bot demands online' })
   detail: string;
 
