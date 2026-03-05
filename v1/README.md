@@ -563,6 +563,46 @@ En el `.env` se usa la variable `ENV_API` para indicar **cómo** debe arrancar l
     ```
  - Volver a realizar el telnet a la ip 172.17.8.141 y puerto 3306 para verificar que se pueda conectar a la BD.
  - Levantar el stack de docker nuevamente.
+ 
+### Puppeteer / Chrome local en WSL2 (`BROWSERLESS_SHOW_BROWSER=true`)
+
+Si se habilita el modo de navegador local (`BROWSERLESS_SHOW_BROWSER=true`) para ver gráficamente cómo el bot automatiza el portal, en WSL2 puede aparecer el error:
+
+> `Failed to launch the browser process ... error while loading shared libraries: libasound.so.2: cannot open shared object file`
+
+Esto significa que el Chrome que descarga Puppeteer para Linux necesita librerías del sistema que no están instaladas en la distro WSL. Para solucionarlo:
+
+```bash
+sudo apt-get update
+
+sudo apt-get install -y \
+  libasound2t64 \
+  libnss3 \
+  libxss1 \
+  libatk-bridge2.0-0t64 \
+  libatk1.0-0t64 \
+  libgtk-3-0t64 \
+  libdrm2 \
+  libgbm1 \
+  libxkbcommon0 \
+  libxcomposite1 \
+  libxrandr2 \
+  libxdamage1 \
+  libpango-1.0-0 \
+  libcairo2
+```
+
+Además, es necesario:
+
+- Tener un entorno gráfico disponible en WSL2 (WSLg en Windows 11 o un servidor X).
+- Haber descargado el Chrome de Puppeteer (una sola vez) dentro del proyecto:
+
+  ```bash
+  cd ~/projects-enviromental-dev/bot-demandas-enlinea/v1
+  npx puppeteer browsers install chrome
+  ```
+
+Si no se requiere ver el navegador, se recomienda dejar `BROWSERLESS_SHOW_BROWSER=false` en el `.env` y usar únicamente Browserless remoto.
 
 
 ## 📄 Licencia

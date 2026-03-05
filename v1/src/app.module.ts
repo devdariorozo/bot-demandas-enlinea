@@ -33,6 +33,7 @@ import { BotControlMigration1771978729009 } from '@infrastructure/persistence/mi
 import { DemandsPendingSyncModule } from './interfaces/modules/demandsPendingSync.module';
 import { BotControlModule } from './interfaces/modules/botControl.module';
 import { LoggerModule } from './infrastructure/logging/logger.module';
+import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlineAutomation.module';
 
 @Module({
   imports: [
@@ -89,6 +90,7 @@ import { LoggerModule } from './infrastructure/logging/logger.module';
     ManagementDemandsOnlineModule,
     BotControlModule,
     DemandsPendingSyncModule,
+    DemandsOnlineAutomationModule,
   ],
 })
 export class AppModule {}

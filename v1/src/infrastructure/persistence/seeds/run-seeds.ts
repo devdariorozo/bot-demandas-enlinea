@@ -9,6 +9,7 @@ import { attentionScheduleSeeds } from './1771978729005_attentionSchedule.seeds'
 import { portfolioCityConfigSeeds } from './1771978729006_portfolioCityConfig.seeds';
 import { amountTypeSeeds } from './1771978729007_amountType.seeds';
 import { managementDemandsOnlineSeeds } from './1771978729008_managementDemandsOnline.seeds';
+import { botControlSeeds } from './1771978729009_botControl.seeds';
 
 async function runSeeds() {
   try {
@@ -26,6 +27,7 @@ async function runSeeds() {
       await qr.query('TRUNCATE TABLE attention_schedule');
       await qr.query('TRUNCATE TABLE portfolio_city_config');
       await qr.query('TRUNCATE TABLE management_demands_online');
+      await qr.query('TRUNCATE TABLE bot_control');
       await qr.query('SET FOREIGN_KEY_CHECKS = 1');
     } finally {
       await qr.release();
@@ -39,6 +41,7 @@ async function runSeeds() {
     await portfolioCityConfigSeeds(dataSource);
     await amountTypeSeeds(dataSource);
     await managementDemandsOnlineSeeds(dataSource);
+    await botControlSeeds(dataSource);
   } catch (error) {
     console.error('Error ejecutando seeds:', error);
   } finally {

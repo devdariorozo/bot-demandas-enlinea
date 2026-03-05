@@ -14,6 +14,7 @@ import { PaginatedResult, paginateArray } from '@application/utils/pagination.ut
 import { dataEmpty, dataOne } from '@application/utils/response.utils';
 
 const createExampleSchema = {
+  portfolio_type_id: 1,
   name_data_base: 'dbd_demands_online',
   portfolio_city_config_id: 1,
   campaign_id: 1,
@@ -25,6 +26,7 @@ const createExampleSchema = {
   amount_type_id: 1,
   user_id: 1,
   user_name: 'BOT demands online',
+  number_filed: '-',
   management_status: 'Abierta',
   detail: 'Demanda pendiente para ser gestionada por el bot demands online',
   state_type_id: 1,
@@ -33,6 +35,7 @@ const createExampleSchema = {
 
 const updateExampleSchema = {
   name_data_base: 'dbd_demands_online',
+  portfolio_type_id: 1,
   portfolio_city_config_id: 1,
   campaign_id: 1,
   lawsuit_id: 1001,
@@ -43,6 +46,7 @@ const updateExampleSchema = {
   amount_type_id: 1,
   user_id: 1,
   user_name: 'BOT demands online',
+  number_filed: '-',
   management_status: 'Abierta',
   detail: 'Demanda pendiente para ser gestionada por el bot demands online',
   state_type_id: 1,

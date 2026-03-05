@@ -8,6 +8,7 @@ export const MANAGEMENT_DEMANDS_ONLINE_REPOSITORY = Symbol('MANAGEMENT_DEMANDS_O
 /** Datos mínimos para crear un registro (id y fechas son opcionales). */
 export type CreateManagementDemandsOnlineInput = Pick<
   ManagementDemandsOnline,
+  | 'portfolio_type_id'
   | 'name_data_base'
   | 'portfolio_city_config_id'
   | 'campaign_id'
@@ -33,4 +34,12 @@ export interface ManagementDemandsOnlineRepository {
   ): Promise<ManagementDemandsOnline | null>;
   update(record: ManagementDemandsOnline): Promise<ManagementDemandsOnline>;
   delete(id: number): Promise<void>;
+  /**
+   * Obtiene de forma atómica la siguiente demanda pendiente (management_status Abierta o Novedad,
+   * state_type_id = 1) y la marca inmediatamente como "En proceso".
+   * Devuelve null si no hay registros disponibles.
+   */
+  findNextPendingAndMarkInProcess(
+    portfolio_type_id: number,
+  ): Promise<ManagementDemandsOnline | null>;
 }

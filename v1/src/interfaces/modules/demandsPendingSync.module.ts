@@ -8,6 +8,7 @@ import { PortfolioCityConfigModule } from './portfolioCityConfig.module';
 import { ManagementDemandsOnlineModule } from './managementDemandsOnline.module';
 import { AmountTypeModule } from './amountType.module';
 import { BotControlModule } from './botControl.module';
+import { DemandsOnlineAutomationModule } from './demandsOnlineAutomation.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { BotControlModule } from './botControl.module';
     ManagementDemandsOnlineModule,
     AmountTypeModule,
     BotControlModule,
+    DemandsOnlineAutomationModule,
   ],
   providers: [DemandsPendingSyncService],
   exports: [DemandsPendingSyncService],

@@ -16,6 +16,7 @@ import {
 import { AMOUNT_TYPE_REPOSITORY, AmountTypeRepository } from '@domain/ports/amountType.ports';
 import { BotControlService } from './botControl.service';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
+import { DemandsOnlineAutomationService } from './demandsOnlineAutomation.service';
 
 const DEFAULT_STATE_TYPE_ID = 1;
 const LAWSUITS_PK = 'id'; // lawsuits se consulta por id = lawsuit_id
@@ -36,6 +37,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     private readonly configService: ConfigService,
     private readonly botControlService: BotControlService,
     private readonly appLogger: AppLogger,
+    private readonly demandsOnlineAutomationService: DemandsOnlineAutomationService,
   ) {}
 
   /** Ejecuta el sync: por cada data_bases y cada base, cruce lawsuits × lca × pcc, resolución amount_type, creación en management_demands_online. */
@@ -228,6 +230,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
               continue;
             }
             const input: CreateManagementDemandsOnlineInput = {
+              portfolio_type_id: dbRecord.portfolio_type_id,
               name_data_base: baseName,
               portfolio_city_config_id: pcc.id,
               campaign_id: Number(row.campaign_id ?? 0),
@@ -240,9 +243,10 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
               state_type_id: DEFAULT_STATE_TYPE_ID,
               user_id: 1,
               user_name: 'BOT demands online',
+              number_filed: '-',
               management_status: 'Abierta',
-              detail: 'Demanda pendiente sincronizada por job',
-              responsible: 'BOT demands online sync',
+              detail: 'Demanda pendiente para registro en linea',
+              responsible: 'BOT demands online',
             };
             this.appLogger.structured({
               level: 'debug',
@@ -378,6 +382,8 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
           skipped: result.skipped,
         },
       });
+
+      await this.demandsOnlineAutomationService.runOnce();
     } catch (err) {
       const error = err as Error;
       this.appLogger.structured({

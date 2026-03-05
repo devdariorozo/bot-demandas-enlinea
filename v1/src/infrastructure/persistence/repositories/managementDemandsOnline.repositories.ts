@@ -20,13 +20,14 @@ import { PortfolioTypeEntity } from '../entities/portfolioType.entities';
 export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsOnlineRepository {
   private readonly repo: Repository<ManagementDemandsOnlineEntity>;
 
-  constructor(@InjectDataSource() dataSource: DataSource) {
+  constructor(@InjectDataSource() private readonly dataSource: DataSource) {
     this.repo = dataSource.getRepository(ManagementDemandsOnlineEntity);
   }
 
   async create(input: CreateManagementDemandsOnlineInput): Promise<ManagementDemandsOnline> {
     const now = new Date();
     const entity: Partial<ManagementDemandsOnlineEntity> = {
+      portfolio_type_id: input.portfolio_type_id,
       name_data_base: input.name_data_base,
       portfolio_city_config_id: input.portfolio_city_config_id,
       campaign_id: input.campaign_id,
@@ -38,6 +39,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       amount_type_id: input.amount_type_id,
       user_id: input.user_id === 0 || input.user_id == null ? 1 : input.user_id,
       user_name: input.user_name ?? 'BOT demands online',
+      number_filed: input.number_filed ?? '-',
       management_status: input.management_status ?? 'Abierta',
       detail: input.detail ?? 'Demanda pendiente para ser gestionada por el bot demands online',
       state_type_id: input.state_type_id ?? 1,
@@ -59,6 +61,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = db.portfolio_type_id')
       .select([
         'm.id',
+        'm.portfolio_type_id',
         'm.name_data_base',
         'm.portfolio_city_config_id',
         'm.campaign_id',
@@ -70,6 +73,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'm.amount_type_id',
         'm.user_id',
         'm.user_name',
+        'm.number_filed',
         'm.management_status',
         'm.detail',
         'm.state_type_id',
@@ -80,7 +84,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'pcc.city',
         'pcc.id_data_bases',
         'db.environment_type_id',
-        'db.portfolio_type_id',
       ])
       .addSelect('st.type', 'state_type_name')
       .addSelect('env.type', 'environment_type_name')
@@ -96,7 +99,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       id_data_bases: row.pcc_id_data_bases as number | undefined,
       environment_type_id: row.db_environment_type_id as number | undefined,
       environment_type_name: (row.environment_type_name as string) ?? undefined,
-      portfolio_type_id: row.db_portfolio_type_id as number | undefined,
       portfolio_type_name: (row.portfolio_type_name as string) ?? undefined,
       campaign_id: row.m_campaign_id as number,
       lawsuit_id: row.m_lawsuit_id as number,
@@ -105,8 +107,10 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       path_law_doc: row.m_path_law_doc as string,
       lawsuit_status: row.m_lawsuit_status as string,
       amount_type_id: row.m_amount_type_id as number,
+      portfolio_type_id: row.m_portfolio_type_id as number,
       user_id: row.m_user_id as number,
       user_name: row.m_user_name as string,
+      number_filed: row.m_number_filed as string,
       management_status: row.m_management_status as string,
       detail: row.m_detail as string,
       state_type_id: row.m_state_type_id as number,
@@ -127,6 +131,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       .leftJoin(PortfolioTypeEntity, 'pf', 'pf.id = db.portfolio_type_id')
       .select([
         'm.id',
+        'm.portfolio_type_id',
         'm.name_data_base',
         'm.portfolio_city_config_id',
         'm.campaign_id',
@@ -138,6 +143,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'm.amount_type_id',
         'm.user_id',
         'm.user_name',
+        'm.number_filed',
         'm.management_status',
         'm.detail',
         'm.state_type_id',
@@ -148,7 +154,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'pcc.city',
         'pcc.id_data_bases',
         'db.environment_type_id',
-        'db.portfolio_type_id',
       ])
       .addSelect('st.type', 'state_type_name')
       .addSelect('env.type', 'environment_type_name')
@@ -169,7 +174,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       id_data_bases: raw.pcc_id_data_bases as number | undefined,
       environment_type_id: raw.db_environment_type_id as number | undefined,
       environment_type_name: (raw.environment_type_name as string) ?? undefined,
-      portfolio_type_id: raw.db_portfolio_type_id as number | undefined,
       portfolio_type_name: (raw.portfolio_type_name as string) ?? undefined,
       campaign_id: raw.m_campaign_id as number,
       lawsuit_id: raw.m_lawsuit_id as number,
@@ -178,8 +182,10 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       path_law_doc: raw.m_path_law_doc as string,
       lawsuit_status: raw.m_lawsuit_status as string,
       amount_type_id: raw.m_amount_type_id as number,
+      portfolio_type_id: raw.m_portfolio_type_id as number,
       user_id: raw.m_user_id as number,
       user_name: raw.m_user_name as string,
+      number_filed: raw.m_number_filed as string,
       management_status: raw.m_management_status as string,
       detail: raw.m_detail as string,
       state_type_id: raw.m_state_type_id as number,
@@ -212,5 +218,67 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
 
   async delete(id: number): Promise<void> {
     await this.repo.delete(id);
+  }
+
+  async findNextPendingAndMarkInProcess(
+    portfolio_type_id: number,
+  ): Promise<ManagementDemandsOnline | null> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const repo = queryRunner.manager.getRepository(ManagementDemandsOnlineEntity);
+
+      const entity = await repo
+        .createQueryBuilder('m')
+        .setLock('pessimistic_write')
+        .where('m.management_status IN (:...statuses)', { statuses: ['Abierta', 'Novedad'] })
+        .andWhere('m.state_type_id = :stateTypeId', { stateTypeId: 1 })
+        .andWhere('m.portfolio_type_id = :portfolioTypeId', { portfolioTypeId: portfolio_type_id })
+        .orderBy('m.updated_at', 'ASC')
+        .addOrderBy('m.id', 'ASC')
+        .getOne();
+
+      if (!entity) {
+        await queryRunner.commitTransaction();
+        return null;
+      }
+
+      entity.management_status = 'En proceso';
+      entity.detail = 'Bot registrando demanda en linea';
+      entity.updated_at = new Date();
+
+      const saved = await repo.save(entity);
+      await queryRunner.commitTransaction();
+
+      return {
+        id: saved.id,
+        portfolio_type_id: saved.portfolio_type_id,
+        name_data_base: saved.name_data_base,
+        portfolio_city_config_id: saved.portfolio_city_config_id,
+        campaign_id: saved.campaign_id,
+        lawsuit_id: saved.lawsuit_id,
+        lawsuit_court_assignments_id: saved.lawsuit_court_assignments_id,
+        client_id: saved.client_id,
+        path_law_doc: saved.path_law_doc,
+        lawsuit_status: saved.lawsuit_status,
+        amount_type_id: saved.amount_type_id,
+        user_id: saved.user_id,
+        user_name: saved.user_name,
+        number_filed: saved.number_filed,
+        management_status: saved.management_status,
+        detail: saved.detail,
+        state_type_id: saved.state_type_id,
+        created_at: saved.created_at,
+        updated_at: saved.updated_at,
+        responsible: saved.responsible,
+      };
+    } catch (error) {
+      await queryRunner.rollbackTransaction();
+      throw error;
+    } finally {
+      await queryRunner.release();
+    }
   }
 }

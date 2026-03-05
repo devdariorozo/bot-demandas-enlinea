@@ -2,6 +2,8 @@
 
 export class ManagementDemandsOnline {
   id: number;
+  /** Cartera a la que pertenece la demanda (portfolio_type.id). */
+  portfolio_type_id: number;
   name_data_base: string;
   portfolio_city_config_id: number;
   /** Derivado de portfolio_city_config.id_city_views */
@@ -14,8 +16,6 @@ export class ManagementDemandsOnline {
   environment_type_id?: number;
   /** Derivado de environment_type.type */
   environment_type_name?: string;
-  /** Derivado de data_bases.portfolio_type_id */
-  portfolio_type_id?: number;
   /** Derivado de portfolio_type.type */
   portfolio_type_name?: string;
   campaign_id: number;
@@ -27,6 +27,7 @@ export class ManagementDemandsOnline {
   amount_type_id: number;
   user_id: number;
   user_name: string;
+  number_filed: string;
   /** Estado de gestión (ej. Abierta, Cerrada). */
   management_status: string;
   detail: string;

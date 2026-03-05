@@ -9,6 +9,11 @@ export class ManagementDemandsOnlineDto {
   @IsOptional()
   id?: number;
 
+  @ApiProperty({ example: 1, description: 'ID de la cartera (portfolio_type_id)' })
+  @IsNumber()
+  @IsNotEmpty()
+  portfolio_type_id: number;
+
   @ApiProperty({ example: 'dbd_demands_online', description: 'Nombre de la base de datos de origen' })
   @IsString()
   @IsNotEmpty()
@@ -64,6 +69,11 @@ export class ManagementDemandsOnlineDto {
   @IsOptional()
   user_name?: string;
 
+  @ApiPropertyOptional({ example: '-', description: 'Número de radicación del proceso' })
+  @IsString()
+  @IsOptional()
+  number_filed?: string;
+
   @ApiPropertyOptional({ example: 'Abierta', description: 'Estado de gestión' })
   @IsString()
   @IsOptional()
@@ -104,6 +114,11 @@ export class UpdateManagementDemandsOnlineDto {
   @IsString()
   @IsNotEmpty()
   name_data_base: string;
+
+  @ApiProperty({ example: 1, description: 'ID de la cartera (portfolio_type_id)' })
+  @IsNumber()
+  @IsNotEmpty()
+  portfolio_type_id: number;
 
   @ApiProperty({ example: 1, description: 'ID de configuración ciudad' })
   @IsNumber()
@@ -154,6 +169,11 @@ export class UpdateManagementDemandsOnlineDto {
   @IsString()
   @IsOptional()
   user_name?: string;
+
+  @ApiPropertyOptional({ example: '-', description: 'Número de radicación del proceso' })
+  @IsString()
+  @IsOptional()
+  number_filed?: string;
 
   @ApiPropertyOptional({ example: 'Abierta', description: 'Estado de gestión' })
   @IsString()

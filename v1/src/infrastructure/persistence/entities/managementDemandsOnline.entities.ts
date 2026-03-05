@@ -8,6 +8,9 @@ export class ManagementDemandsOnlineEntity {
   id: number;
 
   @Column()
+  portfolio_type_id: number;
+
+  @Column()
   name_data_base: string;
 
   @Column()
@@ -39,6 +42,9 @@ export class ManagementDemandsOnlineEntity {
 
   @Column({ length: 100, default: 'BOT demands online' })
   user_name: string;
+
+  @Column({ length: 100, default: '-' })
+  number_filed: string;
 
   @Column({ length: 100, default: 'Abierta' })
   management_status: string;
