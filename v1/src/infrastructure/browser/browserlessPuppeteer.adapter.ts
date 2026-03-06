@@ -22,7 +22,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     try {
       await this.navigateAndAcceptModal(page);
       await this.fillLugarEnvio(page, input.departamento, input.ciudad);
+
+      // Pausa entre ciudad y especialidad: el segundo select puede depender del primero en algunos escenarios
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
       await this.fillEspecialidadYClase(page, input.especialidad, input.claseProceso);
+
+      // Pausa antes del tercer apartado (Sujetos Procesales)
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      await this.fillTipoPersonaNatural(page);
     } finally {
       try {
         await page.close();
@@ -252,15 +261,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     especialidad: string,
     claseProceso: string,
   ): Promise<void> {
+    await page.waitForSelector('#DDlEspecialidad', { timeout: 15000 });
     await page.waitForFunction(() => {
-      const sel = document.querySelector<HTMLSelectElement>('#DdlEspecialidad');
-      return !!sel && sel.options.length > 1;
-    }, { timeout: 30000 });
+      const sel = document.querySelector<HTMLSelectElement>('#DDlEspecialidad');
+      return !!sel && sel.options.length > 2;
+    }, { timeout: 20000 });
 
     const especialidadResult = await page.evaluate((especialidadText) => {
-      const select = document.querySelector<HTMLSelectElement>('#DdlEspecialidad');
+      const select = document.querySelector<HTMLSelectElement>('#DDlEspecialidad');
       if (!select) {
-        return { ok: false, error: 'No se encontró el select de Especialidad (DdlEspecialidad)' };
+        return { ok: false, error: 'No se encontró el select de Especialidad (DDlEspecialidad)' };
       }
 
       const normalize = (value: string) =>
@@ -271,16 +281,26 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           .toUpperCase();
 
       const normalizedTarget = normalize(especialidadText as string);
-      const options = Array.from(select.options);
-      const match = options.find(
-        (o) => o.textContent && normalize(o.textContent) === normalizedTarget,
-      );
-      if (!match) {
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({
+          option: o,
+          norm: normalize(o.textContent as string),
+        }));
+
+      const candidate =
+        items.find((i) => i.norm === normalizedTarget) ??
+        items.find((i) => i.norm.startsWith(normalizedTarget)) ??
+        items.find((i) => normalizedTarget.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(normalizedTarget));
+
+      if (!candidate) {
         return {
           ok: false,
           error: `No se encontró la especialidad "${especialidadText}" en el portal`,
         };
       }
+      const match = candidate.option;
       select.value = match.value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true };
@@ -290,15 +310,26 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       throw new Error(especialidadResult.error ?? 'Error al seleccionar la Especialidad');
     }
 
+    // Esperar a que DDlProceso cargue opciones reales (depende de la especialidad elegida)
     await page.waitForFunction(() => {
-      const sel = document.querySelector<HTMLSelectElement>('#DdlProceso');
-      return !!sel && sel.options.length > 1;
-    }, { timeout: 30000 });
+      const select = document.querySelector<HTMLSelectElement>('#DDlProceso');
+      if (!select) return false;
+      const options = Array.from(select.options);
+      return options.some((o) => {
+        const text = (o.textContent ?? '').trim().toUpperCase();
+        return (
+          o.value !== '' &&
+          o.value !== '-1' &&
+          text.length > 0 &&
+          text !== 'SELECCIONE...'
+        );
+      });
+    }, { timeout: 20000 });
 
     const claseResult = await page.evaluate((claseText) => {
-      const select = document.querySelector<HTMLSelectElement>('#DdlProceso');
+      const select = document.querySelector<HTMLSelectElement>('#DDlProceso');
       if (!select) {
-        return { ok: false, error: 'No se encontró el select de Clase de Proceso (DdlProceso)' };
+        return { ok: false, error: 'No se encontró el select de Clase de Proceso (DDlProceso)' };
       }
 
       const normalize = (value: string) =>
@@ -309,18 +340,26 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           .toUpperCase();
 
       const normalizedTarget = normalize(claseText as string);
-      const options = Array.from(select.options);
-      const match = options.find((o) => {
-        if (!o.textContent) return false;
-        const text = normalize(o.textContent);
-        return text === normalizedTarget || text.startsWith(normalizedTarget);
-      });
-      if (!match) {
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({
+          option: o,
+          norm: normalize(o.textContent as string),
+        }));
+
+      const candidate =
+        items.find((i) => i.norm === normalizedTarget) ??
+        items.find((i) => i.norm.startsWith(normalizedTarget)) ??
+        items.find((i) => normalizedTarget.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(normalizedTarget));
+
+      if (!candidate) {
         return {
           ok: false,
           error: `No se encontró la clase de proceso "${claseText}" en el portal`,
         };
       }
+      const match = candidate.option;
       select.value = match.value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true };
@@ -328,6 +367,55 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
     if (!claseResult.ok) {
       throw new Error(claseResult.error ?? 'Error al seleccionar la Clase de Proceso');
+    }
+  }
+
+  private async fillTipoPersonaNatural(page: Page): Promise<void> {
+    await page.waitForSelector('#DDlTipoPersona', { timeout: 15000 });
+    await page.waitForFunction(() => {
+      const sel = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+      return !!sel && sel.options.length > 2;
+    }, { timeout: 10000 });
+
+    const result = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de persona (DDlTipoPersona)' };
+      }
+
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+
+      const target = 'NATURAL';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({
+          option: o,
+          norm: normalize(o.textContent as string),
+        }));
+
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.includes(target));
+
+      if (!candidate) {
+        return {
+          ok: false,
+          error: 'No se encontró la opción NATURAL en el select de Tipo de persona',
+        };
+      }
+      const match = candidate.option;
+      select.value = match.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!result.ok) {
+      throw new Error(result.error ?? 'Error al seleccionar Tipo de persona NATURAL');
     }
   }
 }

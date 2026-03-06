@@ -33,7 +33,7 @@ export const amountTypeSeeds = async (dataSource: DataSource) => {
     {
       id: 3,
       type: 'Mínima Cuantía',
-      specialty_process: 'CIVIL MUNICIPAL DE PEQUEÑAS CAUSAS – MÍNIMA CUANTÍA',
+      specialty_process: 'CIVIL MUNICIPAL DE PEQUEÑAS CAUSAS Y COMPETENCIA MÚLTIPLE – MÍNIMA CUANTÍA',
       class_process: '41-03-08 EJECUTIVO DE MÍNIMA CUANTÍA',
       detail: 'Demanda con minima cuantia',
       state_type_id: 1,

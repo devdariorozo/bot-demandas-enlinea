@@ -186,6 +186,9 @@ export class DemandsOnlineAutomationService {
         // Mensaje corto y específico para problemas de departamento
         fullDetail =
           'No se pudo seleccionar el departamento en el portal de demandas en línea. Valide la configuración de ciudades (portfolioCityConfig) frente al portal.';
+      } else if (lowerMsg.includes('especialidad')) {
+        fullDetail =
+          'No se pudo seleccionar la especialidad. Verifique el campo specialty_process (amountType) frente al portal.';
       } else {
         // Mensaje genérico más corto para otros errores
         fullDetail =
