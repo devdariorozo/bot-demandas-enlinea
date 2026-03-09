@@ -10,11 +10,11 @@ export class AmountTypeEntity {
   @Column()
   type: string;
 
-  @Column()
-  specialty_process: string;
+  @Column('json')
+  specialty_process: string[];
 
-  @Column()
-  class_process: string;
+  @Column('json')
+  class_process: string[];
 
   @Column()
   detail: string;
@@ -31,4 +31,3 @@ export class AmountTypeEntity {
   @Column()
   responsible: string;
 }
-

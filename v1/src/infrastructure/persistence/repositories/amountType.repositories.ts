@@ -17,7 +17,6 @@ export class AmountTypeRepositoryImpl implements AmountTypeRepository {
     this.repo = dataSource.getRepository(AmountTypeEntity);
   }
 
-  // Crear un nuevo tipo de cuantía
   async create(input: CreateAmountTypeInput): Promise<AmountType> {
     const now = new Date();
     const entity: Partial<AmountTypeEntity> = {
@@ -29,13 +28,11 @@ export class AmountTypeRepositoryImpl implements AmountTypeRepository {
     return saved;
   }
 
-  // Buscar duplicado por type; devuelve null si no existe
   async findByDuplicate(type: string): Promise<AmountType | null> {
     const found = await this.repo.findOneBy({ type });
     return found ?? null;
   }
 
-  // Obtener todos los tipos de cuantía (con nombre de estado)
   async findAll(): Promise<AmountType[]> {
     const raw = await this.repo
       .createQueryBuilder('at')
@@ -57,8 +54,8 @@ export class AmountTypeRepositoryImpl implements AmountTypeRepository {
     return raw.map((row: Record<string, unknown>) => ({
       id: row.at_id as number,
       type: row.at_type as string,
-      specialty_process: row.at_specialty_process as string,
-      class_process: row.at_class_process as string,
+      specialty_process: row.at_specialty_process as string[],
+      class_process: row.at_class_process as string[],
       detail: row.at_detail as string,
       state_type_id: row.at_state_type_id as number,
       state_type_name: (row.state_type_name as string) ?? '',
@@ -68,7 +65,6 @@ export class AmountTypeRepositoryImpl implements AmountTypeRepository {
     }));
   }
 
-  // Obtener un tipo de cuantía por su id
   async findById(id: number): Promise<AmountType> {
     const found = await this.repo.findOneBy({ id });
     if (!found) {
@@ -77,14 +73,11 @@ export class AmountTypeRepositoryImpl implements AmountTypeRepository {
     return found;
   }
 
-  // Actualizar un tipo de cuantía
   async update(amountType: AmountType): Promise<AmountType> {
     return this.repo.save(amountType);
   }
 
-  // Eliminar un tipo de cuantía
   async delete(id: number): Promise<void> {
     await this.repo.delete(id);
   }
 }
-

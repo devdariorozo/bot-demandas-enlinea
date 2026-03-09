@@ -16,6 +16,7 @@ import { PortfolioCityConfigEntity } from './entities/portfolioCityConfig.entiti
 import { PortfolioCityConfigMigration1771978729006 } from './migrations/1771978729006_portfolioCityConfig.migrations';
 import { AmountTypeEntity } from './entities/amountType.entities';
 import { AmountTypeMigration1771978729007 } from './migrations/1771978729007_amountType.migrations';
+import { AlterAmountTypeJson1771978729010 } from './migrations/1771978729010_alterAmountTypeJson.migrations';
 import { ManagementDemandsOnlineEntity } from './entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from './migrations/1771978729008_managementDemandsOnline.migrations';
 import { BotControlEntity } from './entities/botControl.entities';
@@ -49,6 +50,7 @@ export const dataSource = new DataSource({
     AttentionScheduleMigration1771978729005,
     PortfolioCityConfigMigration1771978729006,
     AmountTypeMigration1771978729007,
+    AlterAmountTypeJson1771978729010,
     ManagementDemandsOnlineMigration1771978729008,
     BotControlMigration1771978729009,
   ],

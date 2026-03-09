@@ -10,21 +10,19 @@ import { AmountTypeDto, UpdateAmountTypeDto } from '../dto/amountType.dto';
 import { PaginatedResult, paginateArray } from '@application/utils/pagination.utils';
 import { dataEmpty, dataOne } from '@application/utils/response.utils';
 
-/** Ejemplo JSON que Swagger muestra por defecto en el body (guía visual para quien use la API). */
 const createExampleSchema = {
   type: 'Mayor Cuantía',
-  specialty_process: 'CIVIL CIRCUITO - MAYOR CUANTÍA',
-  class_process: '31-03-07 PROCESOS EJECUTIVOS',
+  specialty_process: ['CIVIL CIRCUITO - MAYOR CUANTÍA', 'PROMISCUO MUNICIPAL'],
+  class_process: ['31-03-07 PROCESOS EJECUTIVOS'],
   detail: 'Demanda con mayor cuantia',
   state_type_id: 1,
   responsible: 'BOT demands online',
 };
 
-/** Ejemplo JSON para actualizar. El id va solo en la URL (path), no en el body. */
 const updateExampleSchema = {
   type: 'Mayor Cuantía',
-  specialty_process: 'CIVIL CIRCUITO - MAYOR CUANTÍA',
-  class_process: '31-03-07 PROCESOS EJECUTIVOS',
+  specialty_process: ['CIVIL CIRCUITO - MAYOR CUANTÍA', 'PROMISCUO MUNICIPAL'],
+  class_process: ['31-03-07 PROCESOS EJECUTIVOS'],
   detail: 'Demanda con mayor cuantia',
   state_type_id: 1,
   responsible: 'BOT demands online',
@@ -35,7 +33,6 @@ const updateExampleSchema = {
 export class AmountTypeController {
   constructor(private readonly amountTypeService: AmountTypeService) {}
 
-  // Crear un nuevo tipo de cuantía
   @Post()
   @ApiOperation({ summary: 'Crear un nuevo tipo de cuantía' })
   @ApiBody({
@@ -47,57 +44,16 @@ export class AmountTypeController {
     return dataOne(created);
   }
 
-  // Obtener todos los tipos de cuantía (con paginación y filtros)
   @Get()
   @ApiOperation({ summary: 'Obtener todos los tipos de cuantía' })
-  @ApiQuery({
-    name: 'start_date',
-    required: false,
-    type: String,
-    description: 'Fecha inicial de creación (YYYY-MM-DD).',
-  })
-  @ApiQuery({
-    name: 'end_date',
-    required: false,
-    type: String,
-    description: 'Fecha final de creación (YYYY-MM-DD).',
-  })
-  @ApiQuery({
-    name: 'type',
-    required: false,
-    type: String,
-    description: 'Filtrar por type (búsqueda parcial, opcional).',
-  })
-  @ApiQuery({
-    name: 'specialty_process',
-    required: false,
-    type: String,
-    description: 'Filtrar por specialty_process (búsqueda parcial, opcional).',
-  })
-  @ApiQuery({
-    name: 'class_process',
-    required: false,
-    type: String,
-    description: 'Filtrar por class_process (búsqueda parcial, opcional).',
-  })
-  @ApiQuery({
-    name: 'state_type_id',
-    required: false,
-    type: Number,
-    description: 'Filtrar por state_type_id (opcional).',
-  })
-  @ApiQuery({
-    name: 'page',
-    required: false,
-    type: Number,
-    description: 'Número de página (>=1)',
-  })
-  @ApiQuery({
-    name: 'limit',
-    required: false,
-    type: Number,
-    description: 'Registros por página (>=1)',
-  })
+  @ApiQuery({ name: 'start_date', required: false, type: String, description: 'Fecha inicial (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'end_date', required: false, type: String, description: 'Fecha final (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'type', required: false, type: String, description: 'Filtrar por type (parcial).' })
+  @ApiQuery({ name: 'specialty_process', required: false, type: String, description: 'Filtrar por specialty_process (parcial).' })
+  @ApiQuery({ name: 'class_process', required: false, type: String, description: 'Filtrar por class_process (parcial).' })
+  @ApiQuery({ name: 'state_type_id', required: false, type: Number, description: 'Filtrar por state_type_id.' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
   async findAll(
     @Query('start_date') start_date?: string,
     @Query('end_date') end_date?: string,
@@ -123,7 +79,7 @@ export class AmountTypeController {
       state_type_id === undefined || state_type_id === null
         ? undefined
         : (() => {
-            const n = typeof state_type_id === 'number' ? state_type_id : Number(state_type_id as any);
+            const n = typeof state_type_id === 'number' ? state_type_id : Number(state_type_id);
             if (!Number.isFinite(n) || n <= 0) return undefined;
             return Math.floor(n);
           })();
@@ -133,7 +89,9 @@ export class AmountTypeController {
     const normalizedClass = (class_process ?? '').trim().toLowerCase();
 
     const byDate = all.filter((item) => {
-      const created = (item as any).created_at ? new Date((item as any).created_at) : undefined;
+      const created = (item as AmountType & { created_at?: Date }).created_at
+        ? new Date((item as AmountType & { created_at?: Date }).created_at!)
+        : undefined;
       if (!created || Number.isNaN(created.getTime())) return true;
       if (start && created < start) return false;
       if (end && created > end) return false;
@@ -142,8 +100,27 @@ export class AmountTypeController {
 
     const filtered = byDate.filter((item) => {
       if (normalizedType && !(item.type ?? '').toLowerCase().includes(normalizedType)) return false;
-      if (normalizedSpecialty && !(item.specialty_process ?? '').toLowerCase().includes(normalizedSpecialty)) return false;
-      if (normalizedClass && !(item.class_process ?? '').toLowerCase().includes(normalizedClass)) return false;
+
+      if (normalizedSpecialty) {
+        const specialties = Array.isArray(item.specialty_process)
+          ? item.specialty_process
+          : item.specialty_process
+            ? [item.specialty_process as unknown as string]
+            : [];
+        const matchesSpecialty = specialties.some((sp) => (sp ?? '').toLowerCase().includes(normalizedSpecialty));
+        if (!matchesSpecialty) return false;
+      }
+
+      if (normalizedClass) {
+        const classes = Array.isArray(item.class_process)
+          ? item.class_process
+          : item.class_process
+            ? [item.class_process as unknown as string]
+            : [];
+        const matchesClass = classes.some((cp) => (cp ?? '').toLowerCase().includes(normalizedClass));
+        if (!matchesClass) return false;
+      }
+
       if (normalizedStateId !== undefined && Number(item.state_type_id) !== normalizedStateId) return false;
       return true;
     });
@@ -151,7 +128,6 @@ export class AmountTypeController {
     return paginateArray(filtered, page, limit);
   }
 
-  // Obtener un tipo de cuantía por su id
   @Get(':id')
   @ApiOperation({ summary: 'Obtener un tipo de cuantía por su id' })
   async findById(@Param('id') id: number) {
@@ -159,7 +135,6 @@ export class AmountTypeController {
     return dataOne(item);
   }
 
-  // Actualizar un tipo de cuantía
   @Put(':id')
   @ApiOperation({ summary: 'Actualizar un tipo de cuantía' })
   @ApiBody({
@@ -171,7 +146,6 @@ export class AmountTypeController {
     return dataOne(updated);
   }
 
-  // Eliminar un tipo de cuantía
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar un tipo de cuantía' })
   async delete(@Param('id') id: number) {
@@ -179,4 +153,3 @@ export class AmountTypeController {
     return dataEmpty();
   }
 }
-

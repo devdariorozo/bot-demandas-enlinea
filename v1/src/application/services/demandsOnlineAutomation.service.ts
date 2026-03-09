@@ -8,10 +8,7 @@ import {
   PORTFOLIO_CITY_CONFIG_REPOSITORY,
   PortfolioCityConfigRepository,
 } from '@domain/ports/portfolioCityConfig.ports';
-import {
-  AMOUNT_TYPE_REPOSITORY,
-  AmountTypeRepository,
-} from '@domain/ports/amountType.ports';
+import { AMOUNT_TYPE_REPOSITORY, AmountTypeRepository } from '@domain/ports/amountType.ports';
 import {
   BROWSER_AUTOMATION_PORT,
   BrowserAutomationPort,
@@ -38,13 +35,6 @@ export class DemandsOnlineAutomationService {
     private readonly appLogger: AppLogger,
   ) {}
 
-  /**
-   * Ejecuta un ciclo de automatización:
-   * - Valida condiciones de ejecución (bot running + horarios).
-   * - Toma la siguiente demanda Abierta/Novedad y la marca En proceso.
-   * - Diligencia Lugar de envío + Especialidad/Clase de Proceso en demandaenlinea.
-   * - Actualiza estado a En proceso o Novedad según resultado.
-   */
   async runOnce(): Promise<void> {
     if (this.running) {
       this.appLogger.structured({
@@ -67,6 +57,7 @@ export class DemandsOnlineAutomationService {
         status: 'WARN',
         message: 'Bot detenido: no se ejecuta la automatización de demandas en línea.',
       });
+      this.running = false;
       return;
     }
 
@@ -80,6 +71,7 @@ export class DemandsOnlineAutomationService {
         message: 'Bot no puede trabajar en este momento para automatizar demandas.',
         meta: { reason: runtime.reason },
       });
+      this.running = false;
       return;
     }
 
@@ -93,6 +85,7 @@ export class DemandsOnlineAutomationService {
         message:
           'No hay configuración data_bases seleccionada; no se puede determinar la cartera para automatizar demandas.',
       });
+      this.running = false;
       return;
     }
 
@@ -110,6 +103,7 @@ export class DemandsOnlineAutomationService {
           'La configuración data_bases seleccionada no existe; no se puede determinar la cartera para automatizar demandas.',
         meta: { data_bases_id: currentDataBasesId },
       });
+      this.running = false;
       return;
     }
 
@@ -126,6 +120,7 @@ export class DemandsOnlineAutomationService {
         message:
           'No se encontraron demandas con estado Abierta o Novedad para automatizar en este ciclo.',
       });
+      this.running = false;
       return;
     }
 
@@ -147,12 +142,19 @@ export class DemandsOnlineAutomationService {
       );
       const amountType = await this.amountTypeRepository.findById(demanda.amount_type_id);
 
+      const especialidades = Array.isArray(amountType.specialty_process)
+        ? amountType.specialty_process
+        : [amountType.specialty_process as unknown as string];
+      const clasesProceso = Array.isArray(amountType.class_process)
+        ? amountType.class_process
+        : [amountType.class_process as unknown as string];
+
       await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
         demanda,
         departamento: cityConfig.name_departament,
         ciudad: cityConfig.name_city,
-        especialidad: amountType.specialty_process,
-        claseProceso: amountType.class_process,
+        especialidades,
+        clasesProceso,
       });
 
       await this.managementDemandsOnlineRepository.update({
@@ -179,18 +181,39 @@ export class DemandsOnlineAutomationService {
       const lowerMsg = error.message.toLowerCase();
       let fullDetail: string;
 
-      if (lowerMsg.includes('waiting failed')) {
+      if (lowerMsg.includes('horario_no_disponible') || lowerMsg.includes('restriccion de horario')) {
+        const msg = error.message;
+        const idx = msg.indexOf(':');
+        const portalMessage = idx >= 0 ? msg.slice(idx + 1).trim() : msg;
+
+        let cityLabel = '';
+        const cityMatch = portalMessage.match(/para la ciudad de\s+([A-ZÁÉÍÓÚÑ\s]+)/i);
+        if (cityMatch?.[1]) {
+          const rawCity = cityMatch[1].trim();
+          const normCity = rawCity.charAt(0).toUpperCase() + rawCity.slice(1).toLowerCase();
+          cityLabel = ` (${normCity})`;
+        }
+
+        const hours = portalMessage.match(/\d{1,2}:\d{2}/g) ?? [];
+        let horarioPart = '';
+        if (hours.length >= 2) {
+          horarioPart = ` Horario: ${hours[0]}-${hours[1]}.`;
+        }
+        if (hours.length >= 4) {
+          horarioPart += ` Receso: ${hours[2]}-${hours[3]}.`;
+        }
+
+        fullDetail = `Restricción de horario en demandaenlinea${cityLabel}.${horarioPart}`;
+      } else if (lowerMsg.includes('waiting failed')) {
         fullDetail =
           'El portal de demandas en línea no respondió a tiempo o tardó demasiado en cargar. Revise la disponibilidad del portal y la conexión del bot.';
       } else if (lowerMsg.includes('departamento')) {
-        // Mensaje corto y específico para problemas de departamento
         fullDetail =
           'No se pudo seleccionar el departamento en el portal de demandas en línea. Valide la configuración de ciudades (portfolioCityConfig) frente al portal.';
       } else if (lowerMsg.includes('especialidad')) {
         fullDetail =
           'No se pudo seleccionar la especialidad. Verifique el campo specialty_process (amountType) frente al portal.';
       } else {
-        // Mensaje genérico más corto para otros errores
         fullDetail =
           'Error automatizando demanda en demandaenlinea. Revise los logs técnicos del bot para más detalle.';
       }
@@ -210,7 +233,7 @@ export class DemandsOnlineAutomationService {
         context: DemandsOnlineAutomationService.name,
         type: 'AUTOMATION_JOB',
         status: 'ERROR',
-        message: 'Fallo la automatización de la demanda en demandaenlinea.',
+        message: 'Falló la automatización de la demanda en demandaenlinea.',
         meta: {
           management_demands_online_id: demanda.id,
           error: error.message,
@@ -222,4 +245,3 @@ export class DemandsOnlineAutomationService {
     }
   }
 }
-

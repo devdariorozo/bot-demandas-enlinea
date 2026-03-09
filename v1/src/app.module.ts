@@ -24,6 +24,7 @@ import { PortfolioCityConfigMigration1771978729006 } from '@infrastructure/persi
 import { PortfolioCityConfigModule } from './interfaces/modules/portfolioCityConfig.module';
 import { AmountTypeEntity } from './infrastructure/persistence/entities/amountType.entities';
 import { AmountTypeMigration1771978729007 } from '@infrastructure/persistence/migrations/1771978729007_amountType.migrations';
+import { AlterAmountTypeJson1771978729010 } from '@infrastructure/persistence/migrations/1771978729010_alterAmountTypeJson.migrations';
 import { AmountTypeModule } from './interfaces/modules/amountType.module';
 import { ManagementDemandsOnlineEntity } from './infrastructure/persistence/entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from '@infrastructure/persistence/migrations/1771978729008_managementDemandsOnline.migrations';
@@ -69,6 +70,7 @@ import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlin
           AttentionScheduleMigration1771978729005,
           PortfolioCityConfigMigration1771978729006,
           AmountTypeMigration1771978729007,
+          AlterAmountTypeJson1771978729010,
           ManagementDemandsOnlineMigration1771978729008,
           BotControlMigration1771978729009,
         ],
