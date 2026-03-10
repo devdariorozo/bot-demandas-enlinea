@@ -13,7 +13,7 @@ import { dataEmpty, dataOne } from '@application/utils/response.utils';
 const createExampleSchema = {
   type: 'Mayor Cuantía',
   specialty_process: ['CIVIL CIRCUITO - MAYOR CUANTÍA', 'PROMISCUO MUNICIPAL'],
-  class_process: ['31-03-07 PROCESOS EJECUTIVOS'],
+  class_process: ['31-03-07 PROCESOS EJECUTIVOS', '40-89-08 EJECUTIVO DE MÍNIMA CUANTÍA '],
   detail: 'Demanda con mayor cuantia',
   state_type_id: 1,
   responsible: 'BOT demands online',
@@ -22,7 +22,7 @@ const createExampleSchema = {
 const updateExampleSchema = {
   type: 'Mayor Cuantía',
   specialty_process: ['CIVIL CIRCUITO - MAYOR CUANTÍA', 'PROMISCUO MUNICIPAL'],
-  class_process: ['31-03-07 PROCESOS EJECUTIVOS'],
+  class_process: ['31-03-07 PROCESOS EJECUTIVOS', '40-89-08 EJECUTIVO DE MÍNIMA CUANTÍA '],
   detail: 'Demanda con mayor cuantia',
   state_type_id: 1,
   responsible: 'BOT demands online',
@@ -42,6 +42,18 @@ export class AmountTypeController {
   async create(@Body() dto: AmountTypeDto) {
     const created = await this.amountTypeService.create(dto as CreateAmountTypeInput);
     return dataOne(created);
+  }
+
+  // Listado simple para selects (id + label_name)
+  @Get('options')
+  @ApiOperation({ summary: 'Obtener opciones de tipos de cuantía para selects' })
+  async options() {
+    const all = await this.amountTypeService.findAll();
+    const items = all.map((item) => ({
+      id: item.id,
+      label_name: item.type,
+    }));
+    return dataOne(items);
   }
 
   @Get()

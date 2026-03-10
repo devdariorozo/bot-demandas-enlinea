@@ -26,6 +26,15 @@ import { AmountTypeEntity } from './infrastructure/persistence/entities/amountTy
 import { AmountTypeMigration1771978729007 } from '@infrastructure/persistence/migrations/1771978729007_amountType.migrations';
 import { AlterAmountTypeJson1771978729010 } from '@infrastructure/persistence/migrations/1771978729010_alterAmountTypeJson.migrations';
 import { AmountTypeModule } from './interfaces/modules/amountType.module';
+import { CompanyTypeEntity } from './infrastructure/persistence/entities/companyType.entities';
+import { CompanyTypeMigration1771978729008 } from '@infrastructure/persistence/migrations/1771978729008_companyType.migrations';
+import { LawyerDataEntity } from './infrastructure/persistence/entities/lawyerData.entities';
+import { LawyerDataMigration1771978729013 } from '@infrastructure/persistence/migrations/1771978729013_lawyerData.migrations';
+import { HolidayEntity } from './infrastructure/persistence/entities/holiday.entities';
+import { HolidayMigration1771978729015 } from '@infrastructure/persistence/migrations/1771978729015_holiday.migrations';
+import { CompanyTypeModule } from './interfaces/modules/companyType.module';
+import { LawyerDataModule } from './interfaces/modules/lawyerData.module';
+import { HolidayModule } from './interfaces/modules/holiday.module';
 import { ManagementDemandsOnlineEntity } from './infrastructure/persistence/entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from '@infrastructure/persistence/migrations/1771978729008_managementDemandsOnline.migrations';
 import { ManagementDemandsOnlineModule } from './interfaces/modules/managementDemandsOnline.module';
@@ -59,6 +68,9 @@ import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlin
           AttentionScheduleEntity,
           PortfolioCityConfigEntity,
           AmountTypeEntity,
+          CompanyTypeEntity,
+          LawyerDataEntity,
+          HolidayEntity,
           ManagementDemandsOnlineEntity,
           BotControlEntity,
         ],
@@ -71,6 +83,9 @@ import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlin
           PortfolioCityConfigMigration1771978729006,
           AmountTypeMigration1771978729007,
           AlterAmountTypeJson1771978729010,
+          CompanyTypeMigration1771978729008,
+          LawyerDataMigration1771978729013,
+          HolidayMigration1771978729015,
           ManagementDemandsOnlineMigration1771978729008,
           BotControlMigration1771978729009,
         ],
@@ -89,6 +104,9 @@ import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlin
     AttentionScheduleModule,
     PortfolioCityConfigModule,
     AmountTypeModule,
+    CompanyTypeModule,
+    LawyerDataModule,
+    HolidayModule,
     ManagementDemandsOnlineModule,
     BotControlModule,
     DemandsPendingSyncModule,

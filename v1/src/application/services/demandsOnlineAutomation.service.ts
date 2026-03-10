@@ -9,13 +9,12 @@ import {
   PortfolioCityConfigRepository,
 } from '@domain/ports/portfolioCityConfig.ports';
 import { AMOUNT_TYPE_REPOSITORY, AmountTypeRepository } from '@domain/ports/amountType.ports';
-import {
-  BROWSER_AUTOMATION_PORT,
-  BrowserAutomationPort,
-} from '@domain/ports/browserAutomation.ports';
+import { BROWSER_AUTOMATION_PORT, BrowserAutomationPort } from '@domain/ports/browserAutomation.ports';
 import { BotControlService } from './botControl.service';
 import { DataBasesService } from './dataBases.service';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
+import { DATABASES_REPOSITORY, DataBasesRepository } from '@domain/ports/dataBases.ports';
+import { COMPANY_TYPE_REPOSITORY, CompanyTypeRepository } from '@domain/ports/companyType.ports';
 
 @Injectable()
 export class DemandsOnlineAutomationService {
@@ -30,10 +29,51 @@ export class DemandsOnlineAutomationService {
     private readonly amountTypeRepository: AmountTypeRepository,
     @Inject(BROWSER_AUTOMATION_PORT)
     private readonly browserAutomationPort: BrowserAutomationPort,
+    @Inject(DATABASES_REPOSITORY)
+    private readonly dataBasesRepository: DataBasesRepository,
+    @Inject(COMPANY_TYPE_REPOSITORY)
+    private readonly companyTypeRepository: CompanyTypeRepository,
     private readonly botControlService: BotControlService,
     private readonly dataBasesService: DataBasesService,
     private readonly appLogger: AppLogger,
   ) {}
+
+  private async resolveCompanyTypeForDemanda(demanda: import('@domain/entities/managementDemandsOnline.entities').ManagementDemandsOnline) {
+    const baseName = demanda.name_data_base;
+    const campaignId = demanda.campaign_id;
+
+    if (!baseName || !campaignId) {
+      return null;
+    }
+
+    const sql = `
+      SELECT format
+      FROM \`${baseName}\`.campaigns
+      WHERE id = ?
+      ORDER BY id ASC
+      LIMIT 1
+    `;
+
+    const rows = await this.dataBasesRepository.runQueryOnBase(baseName, sql, [campaignId]);
+    const rawFormat = rows && rows[0] ? (rows[0] as Record<string, unknown>).format : undefined;
+    if (rawFormat == null) {
+      return null;
+    }
+
+    const formatNumber = Number(rawFormat);
+    if (!Number.isFinite(formatNumber)) {
+      return null;
+    }
+
+    return this.companyTypeRepository.findFirstByPortfolioAndFormat(
+      demanda.portfolio_type_id,
+      formatNumber,
+    );
+  }
+
+  private normalizeNit(documentNumber: string): string {
+    return (documentNumber ?? '').replace(/\D+/g, '');
+  }
 
   async runOnce(): Promise<void> {
     if (this.running) {
@@ -142,6 +182,19 @@ export class DemandsOnlineAutomationService {
       );
       const amountType = await this.amountTypeRepository.findById(demanda.amount_type_id);
 
+      const companyType = await this.resolveCompanyTypeForDemanda(demanda);
+
+      const demandanteData =
+        companyType != null
+          ? {
+              nit: this.normalizeNit(companyType.document_number),
+              company_name: companyType.company_name,
+              address: companyType.address,
+              contact_number: companyType.contact_number,
+              email_notifications: companyType.email_notifications,
+            }
+          : undefined;
+
       const especialidades = Array.isArray(amountType.specialty_process)
         ? amountType.specialty_process
         : [amountType.specialty_process as unknown as string];
@@ -155,6 +208,7 @@ export class DemandsOnlineAutomationService {
         ciudad: cityConfig.name_city,
         especialidades,
         clasesProceso,
+        demandante: demandanteData,
       });
 
       await this.managementDemandsOnlineRepository.update({

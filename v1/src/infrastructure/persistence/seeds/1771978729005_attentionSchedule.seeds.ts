@@ -14,8 +14,10 @@ export const attentionScheduleSeeds = async (dataSource: DataSource) => {
     portfolio_type_id: 1, // Propias
     days: WEEKDAYS_ES,
     start_time: '08:00',
-    end_time: '17:00',
-    detail: 'Horario laboral estándar L-V para Propias',
+    start_recess: '12:00',
+    end_recess: '14:00',
+    end_time: '16:00',
+    detail: 'Horario laboral estándar L-V 08:00-12:00 y 14:00-16:00 para Propias',
     state_type_id: 1,
     created_at: now,
     updated_at: now,

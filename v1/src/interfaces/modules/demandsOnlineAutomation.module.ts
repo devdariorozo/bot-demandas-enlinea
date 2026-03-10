@@ -9,6 +9,7 @@ import { DataBasesModule } from './dataBases.module';
 import { LoggerModule } from '@infrastructure/logging/logger.module';
 import { BROWSER_AUTOMATION_PORT } from '@domain/ports/browserAutomation.ports';
 import { BrowserlessPuppeteerAdapter } from '@infrastructure/browser/browserlessPuppeteer.adapter';
+import { CompanyTypeModule } from './companyType.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { BrowserlessPuppeteerAdapter } from '@infrastructure/browser/browserless
     AmountTypeModule,
     BotControlModule,
     DataBasesModule,
+    CompanyTypeModule,
     LoggerModule,
   ],
   providers: [

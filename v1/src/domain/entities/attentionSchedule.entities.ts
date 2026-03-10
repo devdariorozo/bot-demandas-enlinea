@@ -6,6 +6,8 @@ export class AttentionSchedule {
   portfolio_type_name?: string;
   days: string[]; // Array de días en español: ["Lunes", "Martes", ...]
   start_time: string; // HH:mm
+  start_recess: string; // HH:mm
+  end_recess: string; // HH:mm
   end_time: string; // HH:mm
   detail: string;
   state_type_id: number; // FK al state_type.id

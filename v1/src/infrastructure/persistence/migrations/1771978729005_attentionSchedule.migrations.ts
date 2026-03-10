@@ -10,6 +10,8 @@ export class AttentionScheduleMigration1771978729005 implements MigrationInterfa
         portfolio_type_id INT NOT NULL,
         days JSON NOT NULL,
         start_time TIME NOT NULL,
+        start_recess TIME NOT NULL,
+        end_recess TIME NOT NULL,
         end_time TIME NOT NULL,
         detail VARCHAR(255) NOT NULL,
         state_type_id INT NOT NULL,

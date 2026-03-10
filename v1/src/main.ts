@@ -14,6 +14,9 @@ import { DataBasesDto, UpdateDataBasesDto } from '@interfaces/http/dto/dataBases
 import { CreateAttentionScheduleDto, AttentionScheduleDto, UpdateAttentionScheduleDto } from '@interfaces/http/dto/attentionSchedule.dto';
 import { PortfolioCityConfigDto, UpdatePortfolioCityConfigDto } from '@interfaces/http/dto/portfolioCityConfig.dto';
 import { AmountTypeDto, UpdateAmountTypeDto } from '@interfaces/http/dto/amountType.dto';
+import { CompanyTypeDto, UpdateCompanyTypeDto } from '@interfaces/http/dto/companyType.dto';
+import { LawyerDataDto, UpdateLawyerDataDto } from '@interfaces/http/dto/lawyerData.dto';
+import { HolidayDto, UpdateHolidayDto } from '@interfaces/http/dto/holiday.dto';
 import {
   ManagementDemandsOnlineDto,
   UpdateManagementDemandsOnlineDto,
@@ -82,8 +85,11 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
     .addTag('portfolioType', 'Tipo de cartera que se puede tener en el sistema')
     .addTag('dataBases', 'Configuración de bases de datos por entorno y cartera')
     .addTag('attentionSchedule', 'Horarios de atención por cartera')
+    .addTag('holiday', 'Días festivos por país')
     .addTag('portfolioCityConfig', 'Configuración de ciudades por cartera')
     .addTag('amountType', 'Tipo de cuantía (mayor, menor, mínima)')
+    .addTag('companyType', 'Configuración de compañías por cartera')
+    .addTag('lawyerData', 'Datos base de abogados por cartera')
     .addTag('managementDemandsOnline', 'Gestión de demandas pendientes')
     .build();
 
@@ -104,6 +110,12 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
       UpdatePortfolioCityConfigDto,
       AmountTypeDto,
       UpdateAmountTypeDto,
+      CompanyTypeDto,
+      UpdateCompanyTypeDto,
+      HolidayDto,
+      UpdateHolidayDto,
+      LawyerDataDto,
+      UpdateLawyerDataDto,
       ManagementDemandsOnlineDto,
       UpdateManagementDemandsOnlineDto,
     ],

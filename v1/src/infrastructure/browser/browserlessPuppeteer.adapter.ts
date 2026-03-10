@@ -2,10 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
-import {
-  BrowserAutomationPort,
-  LugarEnvioYProcesoInput,
-} from '@domain/ports/browserAutomation.ports';
+import { BrowserAutomationPort, LugarEnvioYProcesoInput } from '@domain/ports/browserAutomation.ports';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,23 +25,37 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       await this.fillEspecialidadYClase(page, input.especialidades, input.clasesProceso);
       await delay(1500);
 
+      const nitFromCompany = input.demandante?.nit?.toString().trim() ?? '';
+      const notificationEmailFromCompany =
+        input.demandante?.email_notifications?.toString().trim() ?? '';
+
       const nitCarterasPropias =
-        this.configService.get<string>('NIT_CARTERAS_PROPIAS')?.toString().trim() ?? '';
+        nitFromCompany ||
+        this.configService.get<string>('NIT_CARTERAS_PROPIAS')?.toString().trim() ||
+        '';
       const notificationEmail =
-        this.configService.get<string>('DEMANDS_NOTIFICATION_EMAIL')?.toString().trim() ?? '';
+        notificationEmailFromCompany ||
+        this.configService.get<string>('DEMANDS_NOTIFICATION_EMAIL')?.toString().trim() ||
+        '';
 
       if (!nitCarterasPropias) {
-        throw new Error('Variable de entorno NIT_CARTERAS_PROPIAS no configurada');
+        throw new Error(
+          'No se encontró NIT del demandante ni en company_type ni en la variable de entorno NIT_CARTERAS_PROPIAS',
+        );
       }
       if (!notificationEmail) {
-        throw new Error('Variable de entorno DEMANDS_NOTIFICATION_EMAIL no configurada');
+        throw new Error(
+          'No se encontró correo de notificaciones ni en company_type ni en DEMANDS_NOTIFICATION_EMAIL',
+        );
       }
 
-      await this.fillSujetosProcesalesDemandanteJuridico(
-        page,
-        nitCarterasPropias,
-        notificationEmail,
-      );
+      await this.fillSujetosProcesalesDemandanteJuridico(page, {
+        nit: nitCarterasPropias,
+        company_name: input.demandante?.company_name ?? '',
+        address: input.demandante?.address ?? '',
+        contact_number: input.demandante?.contact_number ?? '',
+        email_notifications: notificationEmail,
+      });
     } finally {
       try {
         await page.close();
@@ -246,7 +257,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     // Dar tiempo a que aparezca el modal "Restricción de Horario" si la ciudad tiene restricción
     await delay(2500);
 
-    // Modal: .jconfirm-holder > .jconfirm-content con "Restricción de Horario", botón .jconfirm-buttons .btn.btn-purple (sALIR)
+    // Modal: .jconfirm-holder > .jconfirm-content con "Restricción de Horario", botón .jconfirm-buttons .btn.btn-purple (SALIR)
     const horarioRestriction = await page.evaluate(() => {
       const holder = document.querySelector<HTMLElement>('.jconfirm-holder');
       if (!holder) return null;
@@ -399,8 +410,13 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
   private async fillSujetosProcesalesDemandanteJuridico(
     page: Page,
-    nitCarterasPropias: string,
-    notificationEmail: string,
+    demandante: {
+      nit: string;
+      company_name: string;
+      address: string;
+      contact_number: string;
+      email_notifications: string;
+    },
   ): Promise<void> {
     await delay(500);
 
@@ -571,7 +587,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       input.value = nitValue;
       input.dispatchEvent(new Event('input', { bubbles: true }));
       return { ok: true };
-    }, nitCarterasPropias);
+    }, demandante.nit);
 
     if (!numeroDocumentoResult.ok) {
       throw new Error(
@@ -581,14 +597,15 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
     await delay(1500);
 
-    await page.evaluate(() => {
+    await page.evaluate(
+      (data: { company_name: string; address: string; contact_number: string }) => {
       const normalize = (value: string) =>
         value
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .trim()
           .toUpperCase();
-      const findInputByLabelText = (labelText: string): HTMLInputElement | null => {
+        const findInputByLabelText = (labelText: string): HTMLInputElement | null => {
         const target = normalize(labelText);
         const labels = Array.from(document.querySelectorAll<HTMLLabelElement>('label'));
         for (const label of labels) {
@@ -604,23 +621,29 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           if (input) return input;
         }
         return null;
-      };
-      const razonInput = findInputByLabelText('Razón Social');
-      if (razonInput && !razonInput.value.trim()) {
-        razonInput.value = 'RAZON SOCIAL PRUEBA DEMANDANTE';
-        razonInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      const dirInput = findInputByLabelText('Direccion');
-      if (dirInput && !dirInput.value.trim()) {
-        dirInput.value = 'DIRECCION PRUEBA DEMANDANTE';
-        dirInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-      const telInput = findInputByLabelText('Telefono');
-      if (telInput && !telInput.value.trim()) {
-        telInput.value = '3000000000';
-        telInput.dispatchEvent(new Event('input', { bubbles: true }));
-      }
-    });
+        };
+        const razonInput = findInputByLabelText('Razón Social');
+        if (razonInput && data.company_name) {
+          razonInput.value = data.company_name;
+          razonInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const dirInput = findInputByLabelText('Direccion');
+        if (dirInput && data.address) {
+          dirInput.value = data.address;
+          dirInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        const telInput = findInputByLabelText('Telefono');
+        if (telInput && data.contact_number) {
+          telInput.value = data.contact_number;
+          telInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      },
+      {
+        company_name: demandante.company_name,
+        address: demandante.address,
+        contact_number: demandante.contact_number,
+      },
+    );
 
     const emailInput = await page.$('#IdEmail');
     if (!emailInput) {
@@ -630,7 +653,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     // Asegurar que el correo sea siempre el de .env: hacer clic, seleccionar todo, borrar y escribir el valor
     await emailInput.click({ clickCount: 3 });
     await page.keyboard.press('Backspace');
-    await page.type('#IdEmail', notificationEmail, { delay: 30 });
+    await page.type('#IdEmail', demandante.email_notifications, { delay: 30 });
     await page.evaluate(() => {
       const input = document.querySelector<HTMLInputElement>('#IdEmail');
       if (input) {

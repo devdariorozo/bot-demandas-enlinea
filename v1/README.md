@@ -220,6 +220,30 @@ v1/
 - **Registro y trazabilidad** de cada intento de radicación (logs estructurados, auditoría).
 - **Ejecución programada** (jobs) y ejecución manual vía API; documentación de la API con **Swagger**.
 
+### Lógica de días hábiles y horarios
+
+- **Horarios de atención por cartera (`attention_schedule`)**  
+  - Cada registro define:
+    - `portfolio_type_id`
+    - `days` (array JSON de días en español: `["Lunes", "Martes", ...]`)
+    - `start_time`, `start_recess`, `end_recess`, `end_time` (HH:mm 24h)
+    - `state_type_id` y `responsible`
+  - El servicio `BotControlService.checkRuntimeConditions`:
+    - Consulta los horarios activos (`state_type_name = 'Active'`) para la cartera asociada a la configuración `data_bases` seleccionada.
+    - Verifica que el **día actual** (`Lunes`, `Martes`, etc.) esté incluido en `days`.
+    - Verifica que la **hora actual** esté dentro de alguno de los tramos válidos:
+      - Entre `start_time` y `start_recess`, o
+      - Entre `end_recess` y `end_time`.
+
+- **Días festivos por país (`holiday`)**  
+  - La tabla `holiday` almacena días festivos por país (en este proyecto, **Colombia**: `country_code = 'CO'`), con los campos:
+    - `date`, `name`, `country_code`, `type`, `is_working_day`, `detail`, `state_type_id`.
+  - En cada evaluación de condiciones de ejecución (`checkRuntimeConditions`), el bot:
+    - Calcula la fecha actual (sin hora) y consulta `holiday` mediante `findByDateAndCountry(date, 'CO')`.
+    - Si encuentra un registro y `is_working_day = 0`, **no permite ejecutar el bot** y devuelve una razón del tipo:
+      - `"Hoy (2026-03-23) es festivo no laborable para el bot: DÍA DE SAN JOSÉ"`.
+  - Esto permite modelar excepciones donde, aun siendo día hábil en `attention_schedule`, el bot **no debe trabajar** por ser festivo según la tabla `holiday`.
+
 ## 🔍 Endpoints Principales
 
 Todos bajo el prefijo **`api/v1`**. Documentación interactiva: **`http://localhost:5006/docs`** (o el `PORT_API` configurado).

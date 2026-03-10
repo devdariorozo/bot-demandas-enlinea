@@ -10,6 +10,14 @@ export interface LugarEnvioYProcesoInput {
   especialidades: string[];
   /** Lista de clases de proceso a intentar en orden de prioridad. */
   clasesProceso: string[];
+  /** Datos del demandante (tomados de company_type). */
+  demandante?: {
+    nit: string;
+    company_name: string;
+    address: string;
+    contact_number: string;
+    email_notifications: string;
+  };
 }
 
 export interface BrowserAutomationPort {

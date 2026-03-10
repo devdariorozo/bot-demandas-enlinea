@@ -8,7 +8,15 @@ export const ATTENTION_SCHEDULE_REPOSITORY = Symbol('ATTENTION_SCHEDULE_REPOSITO
 /** Datos para crear un registro; days es array de días en español. */
 export type CreateAttentionScheduleInput = Pick<
   AttentionSchedule,
-  'portfolio_type_id' | 'days' | 'start_time' | 'end_time' | 'detail' | 'state_type_id' | 'responsible'
+  | 'portfolio_type_id'
+  | 'days'
+  | 'start_time'
+  | 'start_recess'
+  | 'end_recess'
+  | 'end_time'
+  | 'detail'
+  | 'state_type_id'
+  | 'responsible'
 > & Partial<AttentionSchedule>;
 
 export interface AttentionScheduleRepository {

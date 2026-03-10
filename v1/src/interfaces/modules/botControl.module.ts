@@ -6,12 +6,13 @@ import { BotControlController } from '../http/controller/botControl.controller';
 import { BotControlService } from '@application/services/botControl.service';
 import { DataBasesModule } from './dataBases.module';
 import { AttentionScheduleModule } from './attentionSchedule.module';
+import { HolidayModule } from './holiday.module';
 import { BOT_CONTROL_REPOSITORY } from '@domain/ports/botControl.ports';
 import { BotControlRepositoryImpl } from '@infrastructure/persistence/repositories/botControl.repositories';
 
 @Module({
   controllers: [BotControlController],
-  imports: [DataBasesModule, AttentionScheduleModule],
+  imports: [DataBasesModule, AttentionScheduleModule, HolidayModule],
   providers: [
     BotControlService,
     {

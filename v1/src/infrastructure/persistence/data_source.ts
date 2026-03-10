@@ -17,6 +17,12 @@ import { PortfolioCityConfigMigration1771978729006 } from './migrations/17719787
 import { AmountTypeEntity } from './entities/amountType.entities';
 import { AmountTypeMigration1771978729007 } from './migrations/1771978729007_amountType.migrations';
 import { AlterAmountTypeJson1771978729010 } from './migrations/1771978729010_alterAmountTypeJson.migrations';
+import { CompanyTypeEntity } from './entities/companyType.entities';
+import { CompanyTypeMigration1771978729008 } from './migrations/1771978729008_companyType.migrations';
+import { LawyerDataEntity } from './entities/lawyerData.entities';
+import { LawyerDataMigration1771978729013 } from './migrations/1771978729013_lawyerData.migrations';
+import { HolidayEntity } from './entities/holiday.entities';
+import { HolidayMigration1771978729015 } from './migrations/1771978729015_holiday.migrations';
 import { ManagementDemandsOnlineEntity } from './entities/managementDemandsOnline.entities';
 import { ManagementDemandsOnlineMigration1771978729008 } from './migrations/1771978729008_managementDemandsOnline.migrations';
 import { BotControlEntity } from './entities/botControl.entities';
@@ -39,6 +45,9 @@ export const dataSource = new DataSource({
     AttentionScheduleEntity,
     PortfolioCityConfigEntity,
     AmountTypeEntity,
+    CompanyTypeEntity,
+    LawyerDataEntity,
+    HolidayEntity,
     ManagementDemandsOnlineEntity,
     BotControlEntity,
   ],
@@ -51,6 +60,9 @@ export const dataSource = new DataSource({
     PortfolioCityConfigMigration1771978729006,
     AmountTypeMigration1771978729007,
     AlterAmountTypeJson1771978729010,
+    CompanyTypeMigration1771978729008,
+    LawyerDataMigration1771978729013,
+    HolidayMigration1771978729015,
     ManagementDemandsOnlineMigration1771978729008,
     BotControlMigration1771978729009,
   ],

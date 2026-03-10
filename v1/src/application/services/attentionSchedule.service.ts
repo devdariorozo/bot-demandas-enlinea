@@ -76,18 +76,26 @@ export class AttentionScheduleService {
     }
 
     const start = timeToMinutes(input.start_time);
+    const startRecess = timeToMinutes((input as any).start_recess);
+    const endRecess = timeToMinutes((input as any).end_recess);
     const end = timeToMinutes(input.end_time);
-    if (Number.isNaN(start) || Number.isNaN(end)) {
-      throw new BadRequestException('start_time and end_time must be valid HH:mm');
+    if ([start, startRecess, endRecess, end].some((v) => Number.isNaN(v))) {
+      throw new BadRequestException(
+        'start_time, start_recess, end_recess and end_time must be valid HH:mm',
+      );
     }
-    if (start >= end) {
-      throw new BadRequestException('start_time must be before end_time');
+    if (!(start < startRecess && startRecess < endRecess && endRecess < end)) {
+      throw new BadRequestException(
+        'Times must satisfy start_time < start_recess < end_recess < end_time',
+      );
     }
 
     const existing = await this.attentionScheduleRepository.findByPortfolio(input.portfolio_type_id);
     const duplicate = existing.some(
       (s) =>
         s.start_time === input.start_time &&
+        (s as any).start_recess === (input as any).start_recess &&
+        (s as any).end_recess === (input as any).end_recess &&
         s.end_time === input.end_time,
     );
     if (duplicate) {
@@ -99,6 +107,8 @@ export class AttentionScheduleService {
       portfolio_type_id: input.portfolio_type_id,
       days: daysArray,
       start_time: input.start_time,
+      start_recess: (input as any).start_recess,
+      end_recess: (input as any).end_recess,
       end_time: input.end_time,
       detail: normalizedDetail,
       state_type_id: input.state_type_id,
@@ -140,6 +150,8 @@ export class AttentionScheduleService {
         portfolio_type_name: portfolio.type,
         days: sc.days,
         start_time: sc.start_time,
+        start_recess: (sc as any).start_recess,
+        end_recess: (sc as any).end_recess,
         end_time: sc.end_time,
         detail: sc.detail,
         state_type_id: sc.state_type_id,
@@ -201,12 +213,18 @@ export class AttentionScheduleService {
     }
 
     const start = timeToMinutes(input.start_time);
+    const startRecess = timeToMinutes((input as any).start_recess);
+    const endRecess = timeToMinutes((input as any).end_recess);
     const end = timeToMinutes(input.end_time);
-    if (Number.isNaN(start) || Number.isNaN(end)) {
-      throw new BadRequestException('start_time and end_time must be valid HH:mm');
+    if ([start, startRecess, endRecess, end].some((v) => Number.isNaN(v))) {
+      throw new BadRequestException(
+        'start_time, start_recess, end_recess and end_time must be valid HH:mm',
+      );
     }
-    if (start >= end) {
-      throw new BadRequestException('start_time must be before end_time');
+    if (!(start < startRecess && startRecess < endRecess && endRecess < end)) {
+      throw new BadRequestException(
+        'Times must satisfy start_time < start_recess < end_recess < end_time',
+      );
     }
 
     const others = await this.attentionScheduleRepository.findByPortfolio(input.portfolio_type_id);
@@ -214,7 +232,10 @@ export class AttentionScheduleService {
       .filter((sc) => sc.id !== input.id)
       .some(
         (s) =>
-          s.start_time === input.start_time && s.end_time === input.end_time,
+          s.start_time === input.start_time &&
+          (s as any).start_recess === (input as any).start_recess &&
+          (s as any).end_recess === (input as any).end_recess &&
+          s.end_time === input.end_time,
       );
     if (duplicate) {
       throw new ConflictException(DUPLICATE_SCHEDULE_MSG);

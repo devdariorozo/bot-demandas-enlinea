@@ -8,6 +8,9 @@ import { dataBasesSeeds } from './1771978729004_dataBases.seeds';
 import { attentionScheduleSeeds } from './1771978729005_attentionSchedule.seeds';
 import { portfolioCityConfigSeeds } from './1771978729006_portfolioCityConfig.seeds';
 import { amountTypeSeeds } from './1771978729007_amountType.seeds';
+import { companyTypeSeeds } from './1771978729008_companyType.seeds';
+import { lawyerDataSeeds } from './1771978729013_lawyerData.seeds';
+import { holidaySeeds } from './1771978729015_holiday.seeds';
 import { managementDemandsOnlineSeeds } from './1771978729008_managementDemandsOnline.seeds';
 import { botControlSeeds } from './1771978729009_botControl.seeds';
 
@@ -22,6 +25,9 @@ async function runSeeds() {
       await qr.query('TRUNCATE TABLE environment_type');
       await qr.query('TRUNCATE TABLE state_type');
       await qr.query('TRUNCATE TABLE portfolio_type');
+      await qr.query('TRUNCATE TABLE company_type');
+      await qr.query('TRUNCATE TABLE lawyer_data');
+      await qr.query('TRUNCATE TABLE holiday');
       await qr.query('TRUNCATE TABLE amount_type');
       await qr.query('TRUNCATE TABLE data_bases');
       await qr.query('TRUNCATE TABLE attention_schedule');
@@ -40,6 +46,9 @@ async function runSeeds() {
     await attentionScheduleSeeds(dataSource);
     await portfolioCityConfigSeeds(dataSource);
     await amountTypeSeeds(dataSource);
+    await companyTypeSeeds(dataSource);
+    await lawyerDataSeeds(dataSource);
+    await holidaySeeds(dataSource);
     await managementDemandsOnlineSeeds(dataSource);
     await botControlSeeds(dataSource);
   } catch (error) {

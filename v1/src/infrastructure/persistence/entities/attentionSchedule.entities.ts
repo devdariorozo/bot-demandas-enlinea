@@ -17,6 +17,12 @@ export class AttentionScheduleEntity {
   start_time: string;
 
   @Column({ type: 'time' })
+  start_recess: string;
+
+  @Column({ type: 'time' })
+  end_recess: string;
+
+  @Column({ type: 'time' })
   end_time: string;
 
   @Column()

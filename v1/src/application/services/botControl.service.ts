@@ -17,6 +17,7 @@ import {
   BOT_CONTROL_REPOSITORY,
   BotControlRepository,
 } from '@domain/ports/botControl.ports';
+import { HOLIDAY_REPOSITORY, HolidayRepository } from '@domain/ports/holiday.ports';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
 import { DataBasesService } from './dataBases.service';
 
@@ -49,6 +50,8 @@ export class BotControlService implements OnModuleInit {
     private readonly appLogger: AppLogger,
     @Inject(BOT_CONTROL_REPOSITORY)
     private readonly botControlRepository: BotControlRepository,
+    @Inject(HOLIDAY_REPOSITORY)
+    private readonly holidayRepository: HolidayRepository,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -382,6 +385,20 @@ export class BotControlService implements OnModuleInit {
       return { ok: false, reason: 'La configuración data_bases seleccionada no está activa' };
     }
 
+    // Validar que hoy no sea festivo no laborable según tabla holiday (país CO)
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    try {
+      const holiday = await this.holidayRepository.findByDateAndCountry(today, 'CO');
+      if (holiday && !holiday.is_working_day) {
+        return {
+          ok: false,
+          reason: `Hoy (${today.toISOString().slice(0, 10)}) es festivo no laborable para el bot: ${holiday.name}`,
+        };
+      }
+    } catch {
+      // Si falla la consulta de festivos, no bloqueamos al bot; se continúa con validación de horarios.
+    }
+
     const schedules = await this.attentionScheduleRepository.findByPortfolio(db.portfolio_type_id);
     const activeSchedules = schedules.filter(
       (sc) => sc.state_type_name && sc.state_type_name.toLowerCase() === 'active',
@@ -391,9 +408,14 @@ export class BotControlService implements OnModuleInit {
       const includesDay = Array.isArray(sc.days) && sc.days.includes(dayEs);
       if (!includesDay) return false;
       const start = this.timeToMinutes(sc.start_time);
+      const startRecess = this.timeToMinutes((sc as any).start_recess);
+      const endRecess = this.timeToMinutes((sc as any).end_recess);
       const end = this.timeToMinutes(sc.end_time);
-      if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
-      return minutesNow >= start && minutesNow <= end;
+      if ([start, startRecess, endRecess, end].some((v) => !Number.isFinite(v))) return false;
+
+      const inMorning = minutesNow >= start && minutesNow < startRecess;
+      const inAfternoon = minutesNow >= endRecess && minutesNow <= end;
+      return inMorning || inAfternoon;
     });
 
     if (!hasValidSchedule) {

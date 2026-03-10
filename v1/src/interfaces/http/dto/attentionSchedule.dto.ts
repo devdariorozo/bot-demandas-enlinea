@@ -40,6 +40,16 @@ export class CreateAttentionScheduleDto {
   @Matches(TIME_24H_REGEX, { message: 'start_time must be in HH:mm 24h format' })
   start_time: string;
 
+  @ApiProperty({ example: '12:00', description: 'Hora inicio de receso (HH:mm 24h)' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'start_recess must be in HH:mm 24h format' })
+  start_recess: string;
+
+  @ApiProperty({ example: '14:00', description: 'Hora fin de receso (HH:mm 24h)' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'end_recess must be in HH:mm 24h format' })
+  end_recess: string;
+
   @ApiProperty({ example: '17:00', description: 'Hora de fin (HH:mm 24h)' })
   @IsString()
   @Matches(TIME_24H_REGEX, { message: 'end_time must be in HH:mm 24h format' })
@@ -91,6 +101,14 @@ export class AttentionScheduleDto {
   @ApiProperty({ example: '08:00', description: 'Hora de inicio (HH:mm)' })
   @IsString()
   start_time: string;
+
+  @ApiProperty({ example: '12:00', description: 'Hora inicio de receso (HH:mm)' })
+  @IsString()
+  start_recess: string;
+
+  @ApiProperty({ example: '14:00', description: 'Hora fin de receso (HH:mm)' })
+  @IsString()
+  end_recess: string;
 
   @ApiProperty({ example: '17:00', description: 'Hora de fin (HH:mm)' })
   @IsString()
@@ -146,6 +164,16 @@ export class UpdateAttentionScheduleDto {
   @IsString()
   @Matches(TIME_24H_REGEX, { message: 'start_time must be in HH:mm 24h format' })
   start_time: string;
+
+  @ApiProperty({ example: '12:00' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'start_recess must be in HH:mm 24h format' })
+  start_recess: string;
+
+  @ApiProperty({ example: '14:00' })
+  @IsString()
+  @Matches(TIME_24H_REGEX, { message: 'end_recess must be in HH:mm 24h format' })
+  end_recess: string;
 
   @ApiProperty({ example: '17:00' })
   @IsString()
