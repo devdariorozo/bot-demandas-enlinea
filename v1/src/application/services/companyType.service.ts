@@ -49,6 +49,13 @@ export class CompanyTypeService {
     return trimmed.toUpperCase();
   }
 
+  private normalizeEmail(value: string): string {
+    if (value == null || typeof value !== 'string') return value as unknown as string;
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return trimmed;
+    return trimmed.toUpperCase();
+  }
+
   private normalizeResponsible(): string {
     return 'BOT demands online';
   }
@@ -93,6 +100,7 @@ export class CompanyTypeService {
       ),
       company_name: this.normalizeUpper(input.company_name),
       address: this.normalizeUpper(input.address),
+      email_notifications: this.normalizeEmail(input.email_notifications),
       responsible: this.normalizeResponsible(),
     };
 
@@ -183,6 +191,7 @@ export class CompanyTypeService {
       document_name: this.normalizeDocumentName(company.document_name),
       company_name: this.normalizeUpper(company.company_name),
       address: this.normalizeUpper(company.address),
+      email_notifications: this.normalizeEmail(company.email_notifications),
       responsible: this.normalizeResponsible(),
     };
 

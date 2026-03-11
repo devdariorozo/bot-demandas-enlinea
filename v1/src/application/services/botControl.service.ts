@@ -419,14 +419,46 @@ export class BotControlService implements OnModuleInit {
     });
 
     if (!hasValidSchedule) {
-      return {
-        ok: false,
-        reason:
-          'No se encuentra dentro de los días u horarios de atención para la configuración data_bases seleccionada',
-      };
+      const reason = this.getStandbyReason(activeSchedules, dayEs, minutesNow);
+      return { ok: false, reason };
     }
 
     return { ok: true };
+  }
+
+  /**
+   * Determina el motivo de standby cuando no se cumple el horario de atención:
+   * fuera de días (ej. sábado/domingo), en receso, o fuera de horario (antes de start / después de end).
+   */
+  private getStandbyReason(
+    activeSchedules: Array<{
+      days?: string[];
+      start_time?: string;
+      start_recess?: string;
+      end_recess?: string;
+      end_time?: string;
+    }>,
+    dayEs: string,
+    minutesNow: number,
+  ): string {
+    const anyIncludesDay = activeSchedules.some(
+      (sc) => Array.isArray(sc.days) && sc.days.includes(dayEs),
+    );
+    if (!anyIncludesDay) {
+      return 'Fuera de días de atención.';
+    }
+
+    const inRecessOfAny = activeSchedules.some((sc) => {
+      const startRecess = this.timeToMinutes((sc as any).start_recess);
+      const endRecess = this.timeToMinutes((sc as any).end_recess);
+      if (!Number.isFinite(startRecess) || !Number.isFinite(endRecess)) return false;
+      return minutesNow >= startRecess && minutesNow < endRecess;
+    });
+    if (inRecessOfAny) {
+      return 'En receso.';
+    }
+
+    return 'Fuera de horario de atención.';
   }
 
   private async findConflictWithSamePortfolio(

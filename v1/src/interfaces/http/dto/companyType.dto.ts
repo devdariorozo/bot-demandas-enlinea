@@ -78,12 +78,13 @@ export class CompanyTypeDto {
   contact_number: string;
 
   @ApiProperty({
-    example: 'demandas@contactosolutions.com',
-    description: 'Correo para notificaciones',
+    example: 'DEMANDAS@CONTACTOSOLUTIONS.COM',
+    description: 'Correo para notificaciones (se almacena en MAYÚSCULAS)',
   })
   @IsString()
   @IsNotEmpty()
   @IsEmail()
+  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase().trim() : value))
   email_notifications: string;
 
   @ApiProperty({
@@ -180,12 +181,13 @@ export class UpdateCompanyTypeDto {
   contact_number: string;
 
   @ApiProperty({
-    example: 'demandas@contactosolutions.com',
-    description: 'Correo para notificaciones',
+    example: 'DEMANDAS@CONTACTOSOLUTIONS.COM',
+    description: 'Correo para notificaciones (se almacena en MAYÚSCULAS)',
   })
   @IsString()
   @IsNotEmpty()
   @IsEmail()
+  @Transform(({ value }) => (typeof value === 'string' ? value.toUpperCase().trim() : value))
   email_notifications: string;
 
   @ApiProperty({

@@ -2,7 +2,7 @@
 
 import { Injectable } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 
 import { ManagementDemandsOnline } from '@domain/entities/managementDemandsOnline.entities';
 import {
@@ -218,6 +218,61 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
 
   async delete(id: number): Promise<void> {
     await this.repo.delete(id);
+  }
+
+  async findNextPending(
+    portfolio_type_id: number,
+    excludeIds: number[] = [],
+  ): Promise<ManagementDemandsOnline | null> {
+    const qb = this.repo
+      .createQueryBuilder('m')
+      .where('m.management_status IN (:...statuses)', { statuses: ['Abierta', 'Novedad'] })
+      .andWhere('m.state_type_id = :stateTypeId', { stateTypeId: 1 })
+      .andWhere('m.portfolio_type_id = :portfolioTypeId', { portfolioTypeId: portfolio_type_id })
+      .orderBy('m.updated_at', 'ASC')
+      .addOrderBy('m.id', 'ASC');
+    if (excludeIds.length > 0) {
+      qb.andWhere('m.id NOT IN (:...excludeIds)', { excludeIds });
+    }
+    const entity = await qb.getOne();
+    if (!entity) return null;
+    return {
+      id: entity.id,
+      portfolio_type_id: entity.portfolio_type_id,
+      name_data_base: entity.name_data_base,
+      portfolio_city_config_id: entity.portfolio_city_config_id,
+      campaign_id: entity.campaign_id,
+      lawsuit_id: entity.lawsuit_id,
+      lawsuit_court_assignments_id: entity.lawsuit_court_assignments_id,
+      client_id: entity.client_id,
+      path_law_doc: entity.path_law_doc,
+      lawsuit_status: entity.lawsuit_status,
+      amount_type_id: entity.amount_type_id,
+      user_id: entity.user_id,
+      user_name: entity.user_name,
+      number_filed: entity.number_filed,
+      management_status: entity.management_status,
+      detail: entity.detail,
+      state_type_id: entity.state_type_id,
+      created_at: entity.created_at,
+      updated_at: entity.updated_at,
+      responsible: entity.responsible,
+    };
+  }
+
+  async markInProcess(id: number): Promise<boolean> {
+    const result = await this.repo.update(
+      {
+        id,
+        management_status: In(['Abierta', 'Novedad']),
+      },
+      {
+        management_status: 'En proceso',
+        detail: 'Bot registrando demanda en linea',
+        updated_at: new Date(),
+      },
+    );
+    return (result.affected ?? 0) > 0;
   }
 
   async findNextPendingAndMarkInProcess(

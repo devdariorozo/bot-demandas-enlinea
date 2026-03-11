@@ -42,4 +42,16 @@ export interface ManagementDemandsOnlineRepository {
   findNextPendingAndMarkInProcess(
     portfolio_type_id: number,
   ): Promise<ManagementDemandsOnline | null>;
+  /**
+   * Obtiene la siguiente demanda pendiente sin marcarla. Permite validar (ej. horario del portal)
+   * antes de marcar y abrir navegador. excludeIds: ids a excluir (ej. registros que no se pueden gestionar ahora).
+   */
+  findNextPending(
+    portfolio_type_id: number,
+    excludeIds?: number[],
+  ): Promise<ManagementDemandsOnline | null>;
+  /**
+   * Marca el registro como "En proceso". Devuelve true si se actualizó (nadie más lo tomó).
+   */
+  markInProcess(id: number): Promise<boolean>;
 }

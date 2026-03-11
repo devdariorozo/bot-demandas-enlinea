@@ -14,6 +14,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     private readonly appLogger: AppLogger,
   ) {}
 
+  private normalizeUpper(value: string | undefined | null): string {
+    if (value == null) return '';
+    const trimmed = value.toString().trim();
+    if (!trimmed) return '';
+    return trimmed
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase();
+  }
+
   async procesarLugarEnvioYEspecialidadYClase(input: LugarEnvioYProcesoInput): Promise<void> {
     const browser = await this.createBrowser();
     const page = await browser.newPage();
@@ -21,7 +31,8 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     try {
       await this.navigateAndAcceptModal(page);
       await this.fillLugarEnvio(page, input.departamento, input.ciudad);
-      await delay(1500);
+      // Dar tiempo a que el portal termine de cargar/normalizar los datos asociados al Lugar de Envío
+      await delay(500);
       await this.fillEspecialidadYClase(page, input.especialidades, input.clasesProceso);
       await delay(1500);
 
@@ -55,6 +66,12 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         address: input.demandante?.address ?? '',
         contact_number: input.demandante?.contact_number ?? '',
         email_notifications: notificationEmail,
+      }, {
+        document_type_name: input.demandado?.document_type_name ?? '',
+        identification: input.demandado?.identification ?? '',
+        completed_name: input.demandado?.completed_name ?? '',
+        address: this.normalizeUpper(input.demandado?.address ?? ''),
+        phone: input.demandado?.phone ?? '',
       });
     } finally {
       try {
@@ -153,7 +170,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     }
     await continueButtons[0].click();
 
-    await delay(1000);
+    await delay(500);
     await page.waitForSelector('#DdlDepartamento', { timeout: 5000 });
     await page.waitForSelector('#DDlCiudad', { timeout: 5000 });
   }
@@ -255,7 +272,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     }
 
     // Dar tiempo a que aparezca el modal "Restricción de Horario" si la ciudad tiene restricción
-    await delay(2500);
+    await delay(1500);
 
     // Modal: .jconfirm-holder > .jconfirm-content con "Restricción de Horario", botón .jconfirm-buttons .btn.btn-purple (SALIR)
     const horarioRestriction = await page.evaluate(() => {
@@ -417,7 +434,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       contact_number: string;
       email_notifications: string;
     },
+    demandado?: {
+      document_type_name: string;
+      identification: string;
+      completed_name: string;
+      address: string;
+      phone: string;
+    },
   ): Promise<void> {
+    // Fase 1: configuración de Sujetos Procesales para el DEMANDANTE JURÍDICO
+    // 1) Seleccionar Tipo de sujeto = DEMANDANTE
     await delay(500);
 
     const tipoSujetoResult = await page.evaluate(() => {
@@ -471,6 +497,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       { timeout: 10000 },
     );
 
+    // 2) Seleccionar Tipo de persona = JURÍDICA
     const tipoPersonaResult = await page.evaluate(() => {
       const select = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
       if (!select) {
@@ -523,6 +550,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       { timeout: 15000 },
     );
 
+    // 3) Seleccionar Tipo de documento = NIT
     const tipoDocumentoResult = await page.evaluate(() => {
       const select = document.querySelector<HTMLSelectElement>('#DDlTipodocumento');
       if (!select) {
@@ -555,6 +583,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       throw new Error(tipoDocumentoResult.error ?? 'Error al seleccionar Tipo de documento NIT');
     }
 
+    // 4) Diligenciar Número de documento con el NIT configurado
     const numeroDocumentoResult = await page.evaluate((nitValue: string) => {
       const normalize = (value: string) =>
         value
@@ -586,6 +615,9 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       input.value = nitValue;
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      // Retirar el foco explícitamente para que el portal procese el cambio
+      input.blur();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
       return { ok: true };
     }, demandante.nit);
 
@@ -595,47 +627,51 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
+    // Dar tiempo al portal para que termine de cargar/normalizar los datos asociados al NIT
     await delay(1500);
 
     await page.evaluate(
       (data: { company_name: string; address: string; contact_number: string }) => {
-      const normalize = (value: string) =>
-        value
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .trim()
-          .toUpperCase();
+        const normalize = (value: string) =>
+          value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
         const findInputByLabelText = (labelText: string): HTMLInputElement | null => {
-        const target = normalize(labelText);
-        const labels = Array.from(document.querySelectorAll<HTMLLabelElement>('label'));
-        for (const label of labels) {
-          const text = normalize(label.textContent ?? '');
-          if (!text.includes(target)) continue;
-          if (label.htmlFor) {
-            const el = document.getElementById(label.htmlFor);
-            if (el && el.tagName === 'INPUT') return el as HTMLInputElement;
+          const target = normalize(labelText);
+          const labels = Array.from(document.querySelectorAll<HTMLLabelElement>('label'));
+          for (const label of labels) {
+            const text = normalize(label.textContent ?? '');
+            if (!text.includes(target)) continue;
+            if (label.htmlFor) {
+              const el = document.getElementById(label.htmlFor);
+              if (el && el.tagName === 'INPUT') return el as HTMLInputElement;
+            }
+            const container =
+              label.closest('.form-row, .form-group, .row') ?? label.parentElement ?? document.body;
+            const input = container?.querySelector<HTMLInputElement>('input.form-control, input') ?? null;
+            if (input) return input;
           }
-          const container =
-            label.closest('.form-row, .form-group, .row') ?? label.parentElement ?? document.body;
-          const input = container?.querySelector<HTMLInputElement>('input.form-control, input') ?? null;
-          if (input) return input;
-        }
-        return null;
+          return null;
         };
         const razonInput = findInputByLabelText('Razón Social');
         if (razonInput && data.company_name) {
           razonInput.value = data.company_name;
           razonInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
-        const dirInput = findInputByLabelText('Direccion');
+        
+        const dirInput = document.querySelector<HTMLInputElement>('#IdDireccion');
         if (dirInput && data.address) {
           dirInput.value = data.address;
           dirInput.dispatchEvent(new Event('input', { bubbles: true }));
+          dirInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
-        const telInput = findInputByLabelText('Telefono');
+        const telInput = document.querySelector<HTMLInputElement>('#IdTelefono');
         if (telInput && data.contact_number) {
           telInput.value = data.contact_number;
           telInput.dispatchEvent(new Event('input', { bubbles: true }));
+          telInput.dispatchEvent(new Event('change', { bubbles: true }));
         }
       },
       {
@@ -645,22 +681,29 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       },
     );
 
+    // Esperar un poco extra antes de intervenir el correo, ya que el portal puede alterar el campo
+    await delay(1000);
+
     const emailInput = await page.$('#IdEmail');
     if (!emailInput) {
       throw new Error('No se encontró el campo Correo para notificaciones (IdEmail)');
     }
 
-    // Asegurar que el correo sea siempre el de .env: hacer clic, seleccionar todo, borrar y escribir el valor
+    // Asegurar que el correo sea siempre el configurado: hacer clic, seleccionar todo, borrar y escribir el valor
     await emailInput.click({ clickCount: 3 });
     await page.keyboard.press('Backspace');
     await page.type('#IdEmail', demandante.email_notifications, { delay: 30 });
-    await page.evaluate(() => {
+    await page.evaluate((expected: string) => {
       const input = document.querySelector<HTMLInputElement>('#IdEmail');
       if (input) {
+        // Forzar que el valor final sea exactamente el esperado
+        if (input.value !== expected) {
+          input.value = expected;
+        }
         input.dispatchEvent(new Event('input', { bubbles: true }));
         input.dispatchEvent(new Event('change', { bubbles: true }));
       }
-    });
+    }, demandante.email_notifications);
 
     await page.waitForSelector('#btnValidar', { timeout: 15000 });
     const validarBtn = await page.$('#btnValidar');
@@ -689,11 +732,544 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       if (cont) cont.click();
     });
 
+    // Dar tiempo a que el modal cierre y el formulario quede estable
+    await delay(1000);
+
     await page.waitForSelector('#btnAddAccionado', { timeout: 15000 });
     const agregarBtn = await page.$('#btnAddAccionado');
     if (!agregarBtn) {
       throw new Error('No se encontró el botón "Agregar" para Sujetos Procesales');
     }
     await agregarBtn.click();
+
+    // Dar tiempo a que el sujeto procesal Demandante quede agregado en la grilla
+    await delay(1000);
+
+    // Si no hay datos del demandado configurados, dejamos el flujo hasta aquí.
+    if (!demandado || !demandado.identification) {
+      this.appLogger.structured({
+        level: 'debug',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSER',
+        status: 'WARN',
+        message:
+          'Datos de demandado no proporcionados en input.demandado; el flujo se detiene luego de agregar Demandante',
+      });
+      return;
+    }
+
+    // Fase 2: DEMANDADO NATURAL
+    // 1) Seleccionar Tipo de sujeto = DEMANDADO en #DDlTipoSujeto
+    await page.waitForSelector('#DDlTipoSujeto', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipoSujeto');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 10000 },
+    );
+
+    const tipoSujetoDemandadoResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoSujeto');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de sujeto (DDlTipoSujeto)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = 'DEMANDADO';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.startsWith(target)) ??
+        items.find((i) => target.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(target));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción DEMANDADO en Tipo de sujeto (DDlTipoSujeto)' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!tipoSujetoDemandadoResult.ok) {
+      throw new Error(
+        tipoSujetoDemandadoResult.error ??
+          'Error al seleccionar Tipo de sujeto DEMANDADO en la fase de Demandado',
+      );
+    }
+
+    // 2) Seleccionar Tipo de persona = NATURAL en #DDlTipoPersona
+    await page.waitForSelector('#DDlTipoPersona', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 10000 },
+    );
+
+    const tipoPersonaNaturalResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de persona (DDlTipoPersona)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = 'NATURAL';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.startsWith(target)) ??
+        items.find((i) => target.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(target));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción NATURAL en el select de Tipo de persona' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!tipoPersonaNaturalResult.ok) {
+      throw new Error(
+        tipoPersonaNaturalResult.error ??
+          'Error al seleccionar Tipo de persona NATURAL para el Demandado',
+      );
+    }
+
+    // 3) Seleccionar Tipo de documento del demandado en #DDlTipodocumento
+    await delay(1000);
+    await page.waitForSelector('#DDlTipodocumento', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const select = document.querySelector<HTMLSelectElement>('#DDlTipodocumento');
+        if (!select) return false;
+        return Array.from(select.options).some(
+          (o) => o.value && o.value !== '-1' && (o.textContent ?? '').trim().length > 0,
+        );
+      },
+      { timeout: 15000 },
+    );
+
+    const tipoDocumentoDemandadoResult = await page.evaluate((rawDocType: string) => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipodocumento');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de documento (DDlTipodocumento)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const source = normalize(rawDocType);
+
+      let target: string | null = null;
+      if (source.includes('CIUDADANIA')) {
+        target = 'CEDULA DE CIUDADANIA';
+      } else if (source.includes('EXTRANJERIA')) {
+        target = 'CEDULA DE EXTRANJERIA';
+      } else if (source.includes('PASAPORTE') || source === 'PA') {
+        target = 'PASAPORTE';
+      }
+
+      const options = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+
+      let candidate;
+      if (target) {
+        const targetNorm = normalize(target);
+        candidate =
+          options.find((i) => i.norm === targetNorm) ??
+          options.find((i) => i.norm.startsWith(targetNorm)) ??
+          options.find((i) => targetNorm.startsWith(i.norm)) ??
+          options.find((i) => i.norm.includes(targetNorm));
+      } else {
+        // Fallback: buscar por el texto original normalizado
+        candidate =
+          options.find((i) => i.norm === source) ??
+          options.find((i) => i.norm.startsWith(source)) ??
+          options.find((i) => source.startsWith(i.norm)) ??
+          options.find((i) => i.norm.includes(source));
+      }
+
+      if (!candidate) {
+        return {
+          ok: false,
+          error: `No se encontró la opción de Tipo de documento para el demandado a partir de "${rawDocType}"`,
+        };
+      }
+
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    }, demandado.document_type_name ?? '');
+
+    if (!tipoDocumentoDemandadoResult.ok) {
+      throw new Error(
+        tipoDocumentoDemandadoResult.error ??
+          'Error al seleccionar Tipo de documento para el Demandado',
+      );
+    }
+
+    // 4) Diligenciar Número de documento del Demandado
+    const numeroDocumentoDemandadoResult = await page.evaluate((idValue: string) => {
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const findInputByLabelText = (labelText: string): HTMLInputElement | null => {
+        const target = normalize(labelText);
+        const labels = Array.from(document.querySelectorAll<HTMLLabelElement>('label'));
+        for (const label of labels) {
+          const text = normalize(label.textContent ?? '');
+          if (!text.includes(target)) continue;
+          if (label.htmlFor) {
+            const el = document.getElementById(label.htmlFor);
+            if (el && el.tagName === 'INPUT') return el as HTMLInputElement;
+          }
+          const container =
+            label.closest('.form-row, .form-group, .row') ?? label.parentElement ?? document.body;
+          const input = container?.querySelector<HTMLInputElement>('input.form-control, input') ?? null;
+          if (input) return input;
+        }
+        return null;
+      };
+      const input = findInputByLabelText('Número Documento');
+      if (!input) return { ok: false, error: 'No se encontró el campo Número Documento para el Demandado' };
+      input.focus();
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.value = idValue;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.blur();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    }, demandado.identification ?? '');
+
+    if (!numeroDocumentoDemandadoResult.ok) {
+      throw new Error(
+        numeroDocumentoDemandadoResult.error ??
+          'Error al diligenciar el campo Número Documento del Demandado',
+      );
+    }
+
+    // Dar tiempo al portal para que termine de cargar/normalizar los datos asociados al documento
+    await delay(1500);
+
+    // 5) Diligenciar nombres y apellidos usando completed_name
+    await page.evaluate((completedNameRaw: string) => {
+      const normalizeBase = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .toUpperCase();
+
+      const splitCompletedNameToParts = (raw: string) => {
+        const name = normalizeBase(raw);
+        if (!name) {
+          return { firstName: '', secondName: '', firstLastName: '', secondLastName: '' };
+        }
+        const parts = name.split(' ').filter(Boolean);
+        const count = parts.length;
+
+        let firstName = '';
+        let secondName = '';
+        let firstLastName = '';
+        let secondLastName = '';
+
+        if (count === 1) {
+          firstName = parts[0];
+        } else if (count === 2) {
+          firstName = parts[0];
+          firstLastName = parts[1];
+        } else if (count === 3) {
+          firstName = parts[0];
+          firstLastName = parts[1];
+          secondLastName = parts[2];
+        } else {
+          firstName = parts[0];
+          secondName = parts[1];
+          firstLastName = parts[count - 2];
+          secondLastName = parts[count - 1];
+        }
+        return { firstName, secondName, firstLastName, secondLastName };
+      };
+
+      const normalizeLabel = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+
+      const findInputByLabelText = (labelText: string): HTMLInputElement | null => {
+        const target = normalizeLabel(labelText);
+        const labels = Array.from(document.querySelectorAll<HTMLLabelElement>('label'));
+        for (const label of labels) {
+          const text = normalizeLabel(label.textContent ?? '');
+          if (!text.includes(target)) continue;
+          if (label.htmlFor) {
+            const el = document.getElementById(label.htmlFor);
+            if (el && el.tagName === 'INPUT') return el as HTMLInputElement;
+          }
+          const container =
+            label.closest('.form-row, .form-group, .row') ?? label.parentElement ?? document.body;
+          const input = container?.querySelector<HTMLInputElement>('input.form-control, input') ?? null;
+          if (input) return input;
+        }
+        return null;
+      };
+
+      const { firstName, secondName, firstLastName, secondLastName } =
+        splitCompletedNameToParts(completedNameRaw ?? '');
+
+      const applyValue = (label: string, value: string) => {
+        const input = findInputByLabelText(label);
+        if (!input) return;
+        input.focus();
+        input.value = '';
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        if (value) {
+          input.value = value;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        input.blur();
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+      };
+
+      applyValue('Primer Nombre', firstName);
+      applyValue('Segundo Nombre', secondName);
+      applyValue('Primer Apellido', firstLastName);
+      applyValue('Segundo Apellido', secondLastName);
+    }, demandado.completed_name ?? '');
+
+    // 6) Tipo de discapacidad = No Aplica
+    await page.waitForSelector('#DDlTipodiscapacidad', { timeout: 15000 });
+    const tipoDiscapacidadResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipodiscapacidad');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de discapacidad (DDlTipodiscapacidad)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = 'NO APLICA';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.startsWith(target)) ??
+        items.find((i) => target.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(target));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción NO APLICA en Tipo de discapacidad' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!tipoDiscapacidadResult.ok) {
+      throw new Error(
+        tipoDiscapacidadResult.error ??
+          'Error al seleccionar Tipo de discapacidad = No Aplica para el Demandado',
+      );
+    }
+
+    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03)
+    await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
+    const localidadResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === normalize(target)) ??
+        items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
+        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
+      if (!candidate) {
+        return {
+          ok: false,
+          error:
+            'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" en el select de Localidad (DDlLocalidad)',
+        };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!localidadResult.ok) {
+      throw new Error(
+        localidadResult.error ??
+          'Error al seleccionar la Localidad "00 - DESCONOCIDA / DUDOSA (41-03)" para el Demandado',
+      );
+    }
+
+    // 8) Dirección del Demandado (IdDireccion) en mayúsculas
+    await page.evaluate((direccion: string) => {
+      const input = document.querySelector<HTMLInputElement>('#IdDireccion');
+      if (!input) return;
+      input.focus();
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (direccion) {
+        input.value = direccion;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      input.blur();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, demandado.address ?? '');
+
+    // 9) Teléfono del Demandado (IdTelefono)
+    await page.evaluate((telefono: string) => {
+      const input = document.querySelector<HTMLInputElement>('#IdTelefono');
+      if (!input) return;
+      input.focus();
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      if (telefono) {
+        input.value = telefono;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      input.blur();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, demandado.phone ?? '');
+
+    // Dar tiempo similar al del Demandante antes de agregar el Demandado
+    await delay(1000);
+
+    const agregarDemandadoBtn = await page.$('#btnAddAccionado');
+    if (!agregarDemandadoBtn) {
+      throw new Error('No se encontró el botón "Agregar" para agregar el Demandado');
+    }
+    await agregarDemandadoBtn.click();
+
+    // Dar tiempo a que el Demandado quede agregado en la grilla
+    await delay(1000);
+
+    // Fase 3: preparar el formulario para el APODERADO NATURAL y dejar el flujo detenido allí
+    await page.waitForSelector('#DDlTipoSujeto', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipoSujeto');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 10000 },
+    );
+
+    const tipoSujetoApoderadoResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoSujeto');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de sujeto (DDlTipoSujeto)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = 'APODERADO';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.startsWith(target)) ??
+        items.find((i) => target.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(target));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción APODERADO en Tipo de sujeto (DDlTipoSujeto)' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!tipoSujetoApoderadoResult.ok) {
+      throw new Error(
+        tipoSujetoApoderadoResult.error ??
+          'Error al seleccionar Tipo de sujeto APODERADO en la fase de Apoderado',
+      );
+    }
+
+    await page.waitForSelector('#DDlTipoPersona', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 10000 },
+    );
+
+    const tipoPersonaApoderadoNaturalResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoPersona');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Tipo de persona (DDlTipoPersona)' };
+      }
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = 'NATURAL';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.startsWith(target)) ??
+        items.find((i) => target.startsWith(i.norm)) ??
+        items.find((i) => i.norm.includes(target));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción NATURAL en el select de Tipo de persona' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!tipoPersonaApoderadoNaturalResult.ok) {
+      throw new Error(
+        tipoPersonaApoderadoNaturalResult.error ??
+          'Error al seleccionar Tipo de persona NATURAL para el Apoderado',
+      );
+    }
+
+    // Pausa visual: dejar el flujo en el formulario del Apoderado NATURAL
+    await delay(3000);
   }
 }

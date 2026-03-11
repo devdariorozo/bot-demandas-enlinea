@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
+import { ManagementDemandsOnline } from '@domain/entities/managementDemandsOnline.entities';
 import {
   MANAGEMENT_DEMANDS_ONLINE_REPOSITORY,
   ManagementDemandsOnlineRepository,
@@ -18,7 +20,8 @@ import { COMPANY_TYPE_REPOSITORY, CompanyTypeRepository } from '@domain/ports/co
 
 @Injectable()
 export class DemandsOnlineAutomationService {
-  private running = false;
+  private currentRunning = 0;
+  private readonly maxConcurrent: number;
 
   constructor(
     @Inject(MANAGEMENT_DEMANDS_ONLINE_REPOSITORY)
@@ -36,7 +39,12 @@ export class DemandsOnlineAutomationService {
     private readonly botControlService: BotControlService,
     private readonly dataBasesService: DataBasesService,
     private readonly appLogger: AppLogger,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    const v = this.configService.get<number>('BROWSERLESS_CONCURRENT_BROWSERS', 1);
+    const n = Number(v);
+    this.maxConcurrent = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+  }
 
   private async resolveCompanyTypeForDemanda(demanda: import('@domain/entities/managementDemandsOnline.entities').ManagementDemandsOnline) {
     const baseName = demanda.name_data_base;
@@ -75,94 +83,183 @@ export class DemandsOnlineAutomationService {
     return (documentNumber ?? '').replace(/\D+/g, '');
   }
 
-  async runOnce(): Promise<void> {
-    if (this.running) {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'WARN',
-        message: 'Ciclo de automatización anterior aún en ejecución; se omite este ciclo.',
-      });
-      return;
+  /**
+   * Indica si el detail corresponde a una restricción de horario del portal (ej. ciudad).
+   */
+  private isPortalRestrictionDetail(detail: string | undefined): boolean {
+    if (!detail || typeof detail !== 'string') return false;
+    const d = detail.trim();
+    return (
+      d.includes('Restricción de horario en demandaenlinea') && d.includes('Horario:')
+    );
+  }
+
+  /**
+   * Parsea Horario y opcionalmente Receso del detail del portal.
+   * Ej: "Horario: 8:00-17:00." y "Receso: 12:00-13:00."
+   * Devuelve minutos desde medianoche (0-1439) o null si no hay coincidencia.
+   */
+  private parsePortalSchedule(detail: string | undefined): {
+    start: number;
+    end: number;
+    recessStart?: number;
+    recessEnd?: number;
+  } | null {
+    if (!detail || typeof detail !== 'string') return null;
+    const horarioMatch = detail.match(/Horario:\s*(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/i);
+    if (!horarioMatch) return null;
+    const start = parseInt(horarioMatch[1], 10) * 60 + parseInt(horarioMatch[2], 10);
+    const end = parseInt(horarioMatch[3], 10) * 60 + parseInt(horarioMatch[4], 10);
+    const recessMatch = detail.match(/Receso:\s*(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/i);
+    let recessStart: number | undefined;
+    let recessEnd: number | undefined;
+    if (recessMatch) {
+      recessStart = parseInt(recessMatch[1], 10) * 60 + parseInt(recessMatch[2], 10);
+      recessEnd = parseInt(recessMatch[3], 10) * 60 + parseInt(recessMatch[4], 10);
     }
+    return { start, end, recessStart, recessEnd };
+  }
 
-    this.running = true;
-
-    if (!this.botControlService.isRunning()) {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'WARN',
-        message: 'Bot detenido: no se ejecuta la automatización de demandas en línea.',
-      });
-      this.running = false;
-      return;
+  /**
+   * True si la hora actual está dentro del horario permitido por el portal (fuera de receso).
+   * Si no hay restricción en el detail, devuelve true (se puede intentar).
+   */
+  private isCurrentTimeAllowedForPortalRestriction(detail: string | undefined): boolean {
+    const schedule = this.parsePortalSchedule(detail);
+    if (!schedule) return true;
+    const now = new Date();
+    const minutesNow =
+      now.getHours() * 60 + now.getMinutes();
+    const { start, end, recessStart, recessEnd } = schedule;
+    if (minutesNow < start || minutesNow > end) return false;
+    if (
+      recessStart != null &&
+      recessEnd != null &&
+      minutesNow >= recessStart &&
+      minutesNow < recessEnd
+    ) {
+      return false;
     }
+    return true;
+  }
 
-    const runtime = await this.botControlService.checkRuntimeConditions();
-    if (!runtime.ok) {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'WARN',
-        message: 'Bot no puede trabajar en este momento para automatizar demandas.',
-        meta: { reason: runtime.reason },
-      });
-      this.running = false;
-      return;
+  /**
+   * Procesa una sola demanda pendiente (si hay y se cumplen condiciones).
+   * Permite hasta maxConcurrent ejecuciones simultáneas (BROWSERLESS_CONCURRENT_BROWSERS).
+   * @returns { processed: true } si se tomó y procesó una demanda; { processed: false } en caso contrario.
+   */
+  async runOnce(): Promise<{ processed: boolean }> {
+    if (this.currentRunning >= this.maxConcurrent) {
+      return { processed: false };
     }
+    this.currentRunning++;
 
-    const currentDataBasesId = this.botControlService.getCurrentDataBasesId();
-    if (!currentDataBasesId) {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'WARN',
-        message:
-          'No hay configuración data_bases seleccionada; no se puede determinar la cartera para automatizar demandas.',
-      });
-      this.running = false;
-      return;
-    }
-
-    let portfolioTypeId: number;
     try {
-      const dbRecord = await this.dataBasesService.findById(currentDataBasesId);
-      portfolioTypeId = dbRecord.portfolio_type_id;
-    } catch {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'WARN',
-        message:
-          'La configuración data_bases seleccionada no existe; no se puede determinar la cartera para automatizar demandas.',
-        meta: { data_bases_id: currentDataBasesId },
-      });
-      this.running = false;
-      return;
-    }
+      if (!this.botControlService.isRunning()) {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'WARN',
+          message: 'Bot detenido: no se ejecuta la automatización de demandas en línea.',
+        });
+        return { processed: false };
+      }
 
-    const demanda =
-      await this.managementDemandsOnlineRepository.findNextPendingAndMarkInProcess(
-        portfolioTypeId,
-      );
-    if (!demanda) {
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'OK',
-        message:
-          'No se encontraron demandas con estado Abierta o Novedad para automatizar en este ciclo.',
-      });
-      this.running = false;
-      return;
-    }
+      const runtime = await this.botControlService.checkRuntimeConditions();
+      if (!runtime.ok) {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'WARN',
+          message: 'Bot no puede trabajar en este momento para automatizar demandas.',
+          meta: { reason: runtime.reason },
+        });
+        return { processed: false };
+      }
+
+      const currentDataBasesId = this.botControlService.getCurrentDataBasesId();
+      if (!currentDataBasesId) {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'WARN',
+          message:
+            'No hay configuración data_bases seleccionada; no se puede determinar la cartera para automatizar demandas.',
+        });
+        return { processed: false };
+      }
+
+      let portfolioTypeId: number;
+      try {
+        const dbRecord = await this.dataBasesService.findById(currentDataBasesId);
+        portfolioTypeId = dbRecord.portfolio_type_id;
+      } catch {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'WARN',
+          message:
+            'La configuración data_bases seleccionada no existe; no se puede determinar la cartera para automatizar demandas.',
+          meta: { data_bases_id: currentDataBasesId },
+        });
+        return { processed: false };
+      }
+
+      const excludeIds: number[] = [];
+      const maxCandidates = 100;
+      let demanda: ManagementDemandsOnline | null = null;
+
+      for (let i = 0; i < maxCandidates; i++) {
+        const candidate = await this.managementDemandsOnlineRepository.findNextPending(
+          portfolioTypeId,
+          excludeIds,
+        );
+        if (!candidate) break;
+
+        if (
+          candidate.management_status === 'Novedad' &&
+          this.isPortalRestrictionDetail(candidate.detail) &&
+          !this.isCurrentTimeAllowedForPortalRestriction(candidate.detail)
+        ) {
+          this.appLogger.structured({
+            level: 'debug',
+            context: DemandsOnlineAutomationService.name,
+            type: 'AUTOMATION_JOB',
+            status: 'OK',
+            message:
+              'Registro en Novedad con restricción de horario del portal; hora actual no permite gestionarlo. Se toma el siguiente sin abrir navegador.',
+            meta: {
+              management_demands_online_id: candidate.id,
+              detail: candidate.detail?.slice(0, 100),
+            },
+          });
+          excludeIds.push(candidate.id);
+          continue;
+        }
+
+        const marked = await this.managementDemandsOnlineRepository.markInProcess(candidate.id);
+        if (marked) {
+          demanda = { ...candidate, management_status: 'En proceso' };
+          break;
+        }
+        excludeIds.push(candidate.id);
+      }
+
+      if (!demanda) {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'OK',
+          message:
+            'No se encontraron demandas con estado Abierta o Novedad para automatizar en este ciclo.',
+        });
+        return { processed: false };
+      }
 
     this.appLogger.structured({
       level: 'debug',
@@ -230,12 +327,15 @@ export class DemandsOnlineAutomationService {
           management_status: 'En proceso',
         },
       });
+      return { processed: true };
     } catch (err) {
       const error = err as Error;
       const lowerMsg = error.message.toLowerCase();
+      const isRestriction =
+        lowerMsg.includes('horario_no_disponible') || lowerMsg.includes('restriccion de horario');
       let fullDetail: string;
 
-      if (lowerMsg.includes('horario_no_disponible') || lowerMsg.includes('restriccion de horario')) {
+      if (isRestriction) {
         const msg = error.message;
         const idx = msg.indexOf(':');
         const portalMessage = idx >= 0 ? msg.slice(idx + 1).trim() : msg;
@@ -294,8 +394,13 @@ export class DemandsOnlineAutomationService {
         },
         stack: error.stack,
       });
+      if (isRestriction) {
+        throw error;
+      }
+      return { processed: false };
+    }
     } finally {
-      this.running = false;
+      this.currentRunning--;
     }
   }
 }

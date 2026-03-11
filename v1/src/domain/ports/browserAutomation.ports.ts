@@ -18,6 +18,19 @@ export interface LugarEnvioYProcesoInput {
     contact_number: string;
     email_notifications: string;
   };
+  /** Datos del demandado (tomados de clients, type_identifications, phones, lawsuit_court_assignments). */
+  demandado?: {
+    /** type_identifications.name ya normalizado a texto humano (ej. "Cédula de Ciudadanía"). */
+    document_type_name: string;
+    /** Número de identificación del demandado (clients.identification). */
+    identification: string;
+    /** Nombre completo tal como viene en completed_name. */
+    completed_name: string;
+    /** Dirección del demandado en mayúsculas (lawsuit_court_assignments.client_address). */
+    address: string;
+    /** Teléfono principal del demandado (phones.telephone). */
+    phone: string;
+  };
 }
 
 export interface BrowserAutomationPort {

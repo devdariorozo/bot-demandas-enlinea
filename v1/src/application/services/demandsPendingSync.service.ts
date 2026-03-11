@@ -21,9 +21,12 @@ import { DemandsOnlineAutomationService } from './demandsOnlineAutomation.servic
 const DEFAULT_STATE_TYPE_ID = 1;
 const LAWSUITS_PK = 'id'; // lawsuits se consulta por id = lawsuit_id
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 @Injectable()
 export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy {
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private automationLoopAborted = false;
 
   constructor(
     @Inject(DATABASES_REPOSITORY)
@@ -323,6 +326,41 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     return Number.isFinite(n) && n > 0 ? n : 30;
   }
 
+  /** Número de navegadores (workers) en paralelo para gestión de demandas (BROWSERLESS_CONCURRENT_BROWSERS). */
+  getConcurrentBrowsers(): number {
+    const v = this.configService.get<number>('BROWSERLESS_CONCURRENT_BROWSERS', 1);
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
+  }
+
+  /** Segundos de espera cuando no hay demanda procesada (AUTOMATION_IDLE_SLEEP_SEC). */
+  private getIdleSleepSec(): number {
+    const v = this.configService.get<number>('AUTOMATION_IDLE_SLEEP_SEC', 15);
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 15;
+  }
+
+  /** Segundos entre demandas cuando sí se procesó una (AUTOMATION_BETWEEN_DEMANDS_SEC). */
+  private getBetweenDemandsSleepSec(): number {
+    const v = this.configService.get<number>('AUTOMATION_BETWEEN_DEMANDS_SEC', 2);
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 2;
+  }
+
+  /** Segundos en standby (AUTOMATION_STANDBY_SLEEP_SEC). */
+  private getStandbySleepSec(): number {
+    const v = this.configService.get<number>('AUTOMATION_STANDBY_SLEEP_SEC', 60);
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 60;
+  }
+
+  /** Segundos cuando el bot está detenido (AUTOMATION_BOT_STOPPED_SLEEP_SEC). */
+  private getBotStoppedSleepSec(): number {
+    const v = this.configService.get<number>('AUTOMATION_BOT_STOPPED_SLEEP_SEC', 5);
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 5;
+  }
+
   onModuleInit(): void {
     const minutes = this.getIntervalMinutes();
     const ms = minutes * 60 * 1000;
@@ -336,9 +374,24 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
       meta: { intervalMinutes: minutes },
     });
     setImmediate(() => this.tick());
+
+    this.automationLoopAborted = false;
+    const concurrentBrowsers = this.getConcurrentBrowsers();
+    for (let i = 0; i < concurrentBrowsers; i++) {
+      setImmediate(() => this.runWorkerLoop());
+    }
+    this.appLogger.structured({
+      level: 'log',
+      context: DemandsPendingSyncService.name,
+      type: 'AUTOMATION_LOOP',
+      status: 'OK',
+      message: `Bucle de gestión continua iniciado con ${concurrentBrowsers} navegador(es) en paralelo (BROWSERLESS_CONCURRENT_BROWSERS).`,
+      meta: { concurrentBrowsers },
+    });
   }
 
   onModuleDestroy(): void {
+    this.automationLoopAborted = true;
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
@@ -382,8 +435,6 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
           skipped: result.skipped,
         },
       });
-
-      await this.demandsOnlineAutomationService.runOnce();
     } catch (err) {
       const error = err as Error;
       this.appLogger.structured({
@@ -395,6 +446,73 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
         meta: { error: error.message },
         stack: error.stack,
       });
+    }
+  }
+
+  /**
+   * Un worker del bucle de gestión: mientras el bot esté en ejecución, procesa demandas.
+   * Se lanzan tantos workers como BROWSERLESS_CONCURRENT_BROWSERS.
+   */
+  private async runWorkerLoop(): Promise<void> {
+    while (!this.automationLoopAborted) {
+      if (!this.botControlService.isRunning()) {
+        await sleep(this.getBotStoppedSleepSec() * 1000);
+        continue;
+      }
+
+      const runtime = await this.botControlService.checkRuntimeConditions();
+      if (!runtime.ok) {
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsPendingSyncService.name,
+          type: 'AUTOMATION_LOOP',
+          status: 'WARN',
+          message: 'Bot en standby (fuera de horario o festivo); se reintentará más tarde.',
+          meta: { reason: runtime.reason },
+        });
+        await sleep(this.getStandbySleepSec() * 1000);
+        continue;
+      }
+
+      try {
+        const result = await this.demandsOnlineAutomationService.runOnce();
+        if (result.processed) {
+          await sleep(this.getBetweenDemandsSleepSec() * 1000);
+        } else {
+          await sleep(this.getIdleSleepSec() * 1000);
+        }
+      } catch (err) {
+        const error = err as Error;
+        const msg = (error.message ?? '').toLowerCase();
+        const isPortalScheduleRestriction =
+          msg.includes('horario_no_disponible') ||
+          msg.includes('restriccion') ||
+          msg.includes('restricción');
+
+        if (isPortalScheduleRestriction) {
+          this.appLogger.structured({
+            level: 'warn',
+            context: DemandsPendingSyncService.name,
+            type: 'AUTOMATION_LOOP',
+            status: 'WARN',
+            message:
+              'Restricción de horario del portal para esta ciudad; la demanda se marcó como Novedad. El bot continúa con la siguiente.',
+            meta: { error: error.message },
+          });
+          await sleep(this.getIdleSleepSec() * 1000);
+        } else {
+          this.appLogger.structured({
+            level: 'error',
+            context: DemandsPendingSyncService.name,
+            type: 'AUTOMATION_LOOP',
+            status: 'ERROR',
+            message: 'Error en gestión de una demanda; se reintentará más tarde.',
+            meta: { error: error.message },
+            stack: error.stack,
+          });
+          await sleep(this.getStandbySleepSec() * 1000);
+        }
+      }
     }
   }
 }
