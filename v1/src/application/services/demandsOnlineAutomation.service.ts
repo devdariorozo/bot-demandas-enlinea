@@ -46,6 +46,100 @@ export class DemandsOnlineAutomationService {
     this.maxConcurrent = Number.isFinite(n) && n >= 1 ? Math.floor(n) : 1;
   }
 
+  private async resolveDemandadoForDemanda(
+    demanda: ManagementDemandsOnline,
+  ): Promise<
+    | {
+        document_type_name: string;
+        identification: string;
+        completed_name: string;
+        address: string;
+        phone: string;
+      }
+    | null
+  > {
+    const baseName = demanda.name_data_base;
+    const clientId = demanda.client_id;
+    const lawsuitCourtAssignmentsId = demanda.lawsuit_court_assignments_id;
+
+    if (!baseName || !clientId || !lawsuitCourtAssignmentsId) {
+      return null;
+    }
+
+    const sql = `
+      SELECT
+        c.identification AS identification,
+        c.completed_name AS completed_name,
+        'Cédula de Ciudadanía' AS document_type_name,
+        lca.client_address AS address,
+        (
+          SELECT p.telephone
+          FROM \`${baseName}\`.phones p
+          WHERE p.client_id = c.id
+          ORDER BY p.id ASC
+          LIMIT 1
+        ) AS phone
+      FROM \`${baseName}\`.clients c
+      LEFT JOIN \`${baseName}\`.lawsuit_court_assignments lca
+        ON lca.id = ?
+      WHERE c.id = ?
+      LIMIT 1
+    `;
+
+    const rows = await this.dataBasesRepository.runQueryOnBase(baseName, sql, [
+      lawsuitCourtAssignmentsId,
+      clientId,
+    ]);
+
+    if (!rows || !rows[0]) {
+      this.appLogger.structured({
+        level: 'debug',
+        context: DemandsOnlineAutomationService.name,
+        type: 'AUTOMATION_JOB',
+        status: 'WARN',
+        message:
+          'No se encontraron datos de demandado (clients/type_identifications/phones/lawsuit_court_assignments) para esta demanda.',
+        meta: {
+          management_demands_online_id: demanda.id,
+          baseName,
+          client_id: clientId,
+          lawsuit_court_assignments_id: lawsuitCourtAssignmentsId,
+        },
+      });
+      return null;
+    }
+
+    const row = rows[0] as Record<string, unknown>;
+    const identification = String(row.identification ?? '').trim();
+    const completed_name = String(row.completed_name ?? '').trim();
+
+    if (!identification || !completed_name) {
+      this.appLogger.structured({
+        level: 'debug',
+        context: DemandsOnlineAutomationService.name,
+        type: 'AUTOMATION_JOB',
+        status: 'WARN',
+        message:
+          'Datos de demandado incompletos (identification o completed_name vacío); se omite la fase de Demandado.',
+        meta: {
+          management_demands_online_id: demanda.id,
+          baseName,
+          client_id: clientId,
+          lawsuit_court_assignments_id: lawsuitCourtAssignmentsId,
+        },
+      });
+      return null;
+    }
+
+    return {
+      document_type_name: String(row.document_type_name ?? '').trim(),
+      identification,
+      completed_name,
+      address: String(row.address ?? ''),
+      phone: String(row.phone ?? ''),
+    };
+  }
+
   private async resolveCompanyTypeForDemanda(demanda: import('@domain/entities/managementDemandsOnline.entities').ManagementDemandsOnline) {
     const baseName = demanda.name_data_base;
     const campaignId = demanda.campaign_id;
@@ -280,6 +374,7 @@ export class DemandsOnlineAutomationService {
       const amountType = await this.amountTypeRepository.findById(demanda.amount_type_id);
 
       const companyType = await this.resolveCompanyTypeForDemanda(demanda);
+      const demandadoData = await this.resolveDemandadoForDemanda(demanda);
 
       const demandanteData =
         companyType != null
@@ -306,6 +401,7 @@ export class DemandsOnlineAutomationService {
         especialidades,
         clasesProceso,
         demandante: demandanteData,
+        demandado: demandadoData ?? undefined,
       });
 
       await this.managementDemandsOnlineRepository.update({

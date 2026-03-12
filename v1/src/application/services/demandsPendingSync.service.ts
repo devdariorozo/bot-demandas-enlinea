@@ -398,7 +398,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     }
   }
 
-  private async tick(): Promise<void> {
+  async tick(): Promise<void> {
     if (!this.botControlService.isRunning()) {
       this.appLogger.structured({
         level: 'debug',

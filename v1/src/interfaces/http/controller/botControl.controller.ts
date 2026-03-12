@@ -4,12 +4,16 @@ import { Controller, Get, Post, Query } from '@nestjs/common';
 import { ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 
 import { BotControlService, BotStatus } from '@application/services/botControl.service';
+import { DemandsPendingSyncService } from '@application/services/demandsPendingSync.service';
 import { dataOne, dataMany } from '@application/utils/response.utils';
 
 @ApiTags('botControl')
 @Controller('bot_control')
 export class BotControlController {
-  constructor(private readonly botControlService: BotControlService) {}
+  constructor(
+    private readonly botControlService: BotControlService,
+    private readonly demandsPendingSyncService: DemandsPendingSyncService,
+  ) {}
 
   @Post('start')
   @ApiOperation({ summary: 'Iniciar el bot de demandas en línea' })
@@ -23,6 +27,10 @@ export class BotControlController {
     const status: BotStatus = await this.botControlService.start(
       data_bases_id !== undefined ? Number(data_bases_id) : undefined,
     );
+    if (status.running) {
+      // Ejecutar una sincronización inmediata de demandas pendientes al iniciar el bot.
+      void this.demandsPendingSyncService.tick();
+    }
     return dataOne(status);
   }
 

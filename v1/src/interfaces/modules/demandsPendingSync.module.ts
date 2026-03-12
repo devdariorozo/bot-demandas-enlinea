@@ -1,6 +1,6 @@
 // Responsabilidad: módulo del job de sincronización de demandas pendientes (consulta multi-BD → management_demands_online).
 
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 
 import { DemandsPendingSyncService } from '@application/services/demandsPendingSync.service';
 import { DataBasesModule } from './dataBases.module';
@@ -16,7 +16,7 @@ import { DemandsOnlineAutomationModule } from './demandsOnlineAutomation.module'
     PortfolioCityConfigModule,
     ManagementDemandsOnlineModule,
     AmountTypeModule,
-    BotControlModule,
+    forwardRef(() => BotControlModule),
     DemandsOnlineAutomationModule,
   ],
   providers: [DemandsPendingSyncService],

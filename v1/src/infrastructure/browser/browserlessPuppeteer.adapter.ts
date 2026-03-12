@@ -1,8 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
 import { BrowserAutomationPort, LugarEnvioYProcesoInput } from '@domain/ports/browserAutomation.ports';
+import {
+  MANAGEMENT_DEMANDS_ONLINE_REPOSITORY,
+  ManagementDemandsOnlineRepository,
+} from '@domain/ports/managementDemandsOnline.ports';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -12,6 +16,8 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
   constructor(
     private readonly configService: ConfigService,
     private readonly appLogger: AppLogger,
+    @Inject(MANAGEMENT_DEMANDS_ONLINE_REPOSITORY)
+    private readonly managementDemandsOnlineRepository: ManagementDemandsOnlineRepository,
   ) {}
 
   private normalizeUpper(value: string | undefined | null): string {
@@ -29,10 +35,36 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     const page = await browser.newPage();
 
     try {
+      // Detail: Automatizando modal
+      await this.managementDemandsOnlineRepository.update({
+        ...input.demanda,
+        management_status: input.demanda.management_status,
+        detail: 'Automatizando modal',
+        updated_at: new Date(),
+      });
+
       await this.navigateAndAcceptModal(page);
+
+      // Detail: Automatizando lugar de envío de la demanda
+      await this.managementDemandsOnlineRepository.update({
+        ...input.demanda,
+        management_status: input.demanda.management_status,
+        detail: 'Automatizando lugar de envío de la demanda',
+        updated_at: new Date(),
+      });
+
       await this.fillLugarEnvio(page, input.departamento, input.ciudad);
       // Dar tiempo a que el portal termine de cargar/normalizar los datos asociados al Lugar de Envío
       await delay(500);
+
+      // Detail: Automatizando especialidad y clase de proceso
+      await this.managementDemandsOnlineRepository.update({
+        ...input.demanda,
+        management_status: input.demanda.management_status,
+        detail: 'Automatizando especialidad y clase de proceso',
+        updated_at: new Date(),
+      });
+
       await this.fillEspecialidadYClase(page, input.especialidades, input.clasesProceso);
       await delay(1500);
 
@@ -59,6 +91,14 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           'No se encontró correo de notificaciones ni en company_type ni en DEMANDS_NOTIFICATION_EMAIL',
         );
       }
+
+      // Detail: Automatizando sujetos procesales
+      await this.managementDemandsOnlineRepository.update({
+        ...input.demanda,
+        management_status: input.demanda.management_status,
+        detail: 'Automatizando sujetos procesales',
+        updated_at: new Date(),
+      });
 
       await this.fillSujetosProcesalesDemandanteJuridico(page, {
         nit: nitCarterasPropias,
@@ -982,37 +1022,6 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           .trim()
           .toUpperCase();
 
-      const splitCompletedNameToParts = (raw: string) => {
-        const name = normalizeBase(raw);
-        if (!name) {
-          return { firstName: '', secondName: '', firstLastName: '', secondLastName: '' };
-        }
-        const parts = name.split(' ').filter(Boolean);
-        const count = parts.length;
-
-        let firstName = '';
-        let secondName = '';
-        let firstLastName = '';
-        let secondLastName = '';
-
-        if (count === 1) {
-          firstName = parts[0];
-        } else if (count === 2) {
-          firstName = parts[0];
-          firstLastName = parts[1];
-        } else if (count === 3) {
-          firstName = parts[0];
-          firstLastName = parts[1];
-          secondLastName = parts[2];
-        } else {
-          firstName = parts[0];
-          secondName = parts[1];
-          firstLastName = parts[count - 2];
-          secondLastName = parts[count - 1];
-        }
-        return { firstName, secondName, firstLastName, secondLastName };
-      };
-
       const normalizeLabel = (value: string) =>
         value
           .normalize('NFD')
@@ -1038,8 +1047,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         return null;
       };
 
-      const { firstName, secondName, firstLastName, secondLastName } =
-        splitCompletedNameToParts(completedNameRaw ?? '');
+      // Regla solicitada:
+      // - Tomar la primera palabra como Primer Nombre.
+      // - Tomar la última palabra como Primer Apellido.
+      // - Dejar Segundo Nombre y Segundo Apellido en blanco.
+      const normalized = normalizeBase(completedNameRaw ?? '');
+      const parts = normalized ? normalized.split(' ').filter(Boolean) : [];
+      const firstName = parts.length > 0 ? parts[0] : '';
+      const firstLastName = parts.length > 0 ? parts[parts.length - 1] : '';
+      const secondName = '';
+      const secondLastName = '';
 
       const applyValue = (label: string, value: string) => {
         const input = findInputByLabelText(label);
@@ -1098,44 +1115,72 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
-    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03)
-    await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
-    const localidadResult = await page.evaluate(() => {
-      const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
-      if (!select) {
-        return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
-      }
-      const normalize = (value: string) =>
-        value
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .trim()
-          .toUpperCase();
-      const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
-      const items = Array.from(select.options)
-        .filter((o) => o.textContent && o.textContent.trim().length > 0)
-        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
-      const candidate =
-        items.find((i) => i.norm === normalize(target)) ??
-        items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
-        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
-      if (!candidate) {
-        return {
-          ok: false,
-          error:
-            'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" en el select de Localidad (DDlLocalidad)',
-        };
-      }
-      select.value = candidate.option.value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true };
-    });
-
-    if (!localidadResult.ok) {
-      throw new Error(
-        localidadResult.error ??
-          'Error al seleccionar la Localidad "00 - DESCONOCIDA / DUDOSA (41-03)" para el Demandado',
+    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03) (id = 1476) cuando exista el campo.
+    try {
+      await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
+      await page.waitForFunction(
+        () => {
+          const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
+          if (!select) return false;
+          const options = Array.from(select.options);
+          return options.length > 1;
+        },
+        { timeout: 15000 },
       );
+
+      const localidadResult = await page.evaluate(() => {
+        const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
+        if (!select) {
+          return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
+        }
+        const normalize = (value: string) =>
+          value
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .trim()
+            .toUpperCase();
+        const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
+        const items = Array.from(select.options)
+          .filter((o) => o.textContent && o.textContent.trim().length > 0)
+          .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+        // Primero intentamos por value fijo 1476 (requisito del negocio)
+        let candidate =
+          items.find((i) => i.option.value === '1476') ??
+          items.find((i) => i.norm === normalize(target)) ??
+          items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
+          items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
+
+        if (!candidate) {
+          return {
+            ok: false,
+            error:
+              'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) en el select de Localidad (DDlLocalidad)',
+          };
+        }
+        select.value = candidate.option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return { ok: true };
+      });
+
+      if (!localidadResult.ok) {
+        throw new Error(
+          localidadResult.error ??
+            'Error al seleccionar la Localidad "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) para el Demandado',
+        );
+      }
+    } catch (err) {
+      // Si el campo de localidad no existe en este entorno/ciudad, no bloqueamos el flujo.
+      // El portal mostrará el mensaje si realmente es obligatorio.
+      const error = err as Error;
+      (this.appLogger ?? console).structured?.({
+        level: 'debug',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSER',
+        status: 'WARN',
+        message:
+          'No se cuenta con el select de Localidad para el Demandado; se continúa el flujo.',
+        meta: { error: error.message },
+      });
     }
 
     // 8) Dirección del Demandado (IdDireccion) en mayúsculas
