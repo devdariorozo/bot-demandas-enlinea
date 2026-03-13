@@ -40,6 +40,14 @@ export class LawyerDataRepositoryImpl implements LawyerDataRepository {
     return (existing as LawyerData) ?? null;
   }
 
+  async findFirstByPortfolioTypeId(portfolio_type_id: number): Promise<LawyerData | null> {
+    const row = await this.repo.findOne({
+      where: { portfolio_type_id },
+      order: { id: 'ASC' },
+    });
+    return (row as LawyerData) ?? null;
+  }
+
   async findAll(): Promise<LawyerData[]> {
     const raw = await this.repo
       .createQueryBuilder('ld')

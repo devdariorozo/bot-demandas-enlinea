@@ -31,8 +31,30 @@ export interface LugarEnvioYProcesoInput {
     /** Teléfono principal del demandado (phones.telephone). */
     phone: string;
   };
+  /** Apoderado (lawyer_data por portfolio_type_id de la demanda). Solo fase 3. */
+  apoderado?: {
+    document_name: string;
+    document_number: string;
+    first_name: string;
+    second_name: string;
+    first_last_name: string;
+    second_last_name: string;
+    address: string;
+    contact_number: string;
+    email_notifications: string;
+  };
+}
+
+/** Resultado del flujo en el portal (para mensaje final en DB y logs). */
+export interface ProcesarLugarEnvioResult {
+  /** true si se llegó a la sección Archivos adjuntos y tipo DEMANDA quedó seleccionado. */
+  reachedArchivosAdjuntos: boolean;
+  /** true si se generó path_law_doc, se descargó el PDF y se subió al input file del portal. */
+  pdfDemandaAdjuntado?: boolean;
 }
 
 export interface BrowserAutomationPort {
-  procesarLugarEnvioYEspecialidadYClase(input: LugarEnvioYProcesoInput): Promise<void>;
+  procesarLugarEnvioYEspecialidadYClase(
+    input: LugarEnvioYProcesoInput,
+  ): Promise<ProcesarLugarEnvioResult>;
 }

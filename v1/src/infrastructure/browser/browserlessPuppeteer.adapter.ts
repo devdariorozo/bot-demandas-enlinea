@@ -1,8 +1,17 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
-import { BrowserAutomationPort, LugarEnvioYProcesoInput } from '@domain/ports/browserAutomation.ports';
+import {
+  BrowserAutomationPort,
+  LugarEnvioYProcesoInput,
+  ProcesarLugarEnvioResult,
+} from '@domain/ports/browserAutomation.ports';
+import { DEMAND_PDF_PORT, DemandPdfPort } from '@domain/ports/demandPdf.ports';
+import { ManagementDemandsOnline } from '@domain/entities/managementDemandsOnline.entities';
 import {
   MANAGEMENT_DEMANDS_ONLINE_REPOSITORY,
   ManagementDemandsOnlineRepository,
@@ -18,7 +27,19 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     private readonly appLogger: AppLogger,
     @Inject(MANAGEMENT_DEMANDS_ONLINE_REPOSITORY)
     private readonly managementDemandsOnlineRepository: ManagementDemandsOnlineRepository,
+    @Inject(DEMAND_PDF_PORT)
+    private readonly demandPdfPort: DemandPdfPort,
   ) {}
+
+  /** Escribe solo detail + updated_at en BD para que listados/polling vean el paso actual. */
+  private async persistAutomationDetail(id: number, detail: string): Promise<void> {
+    await this.managementDemandsOnlineRepository.updateAutomationDetail(id, detail);
+  }
+
+  /** Solo dígitos (documento / teléfono apoderado). */
+  private digitsOnly(value: string | undefined | null): string {
+    return (value ?? '').replace(/\D+/g, '');
+  }
 
   private normalizeUpper(value: string | undefined | null): string {
     if (value == null) return '';
@@ -30,40 +51,124 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       .toUpperCase();
   }
 
-  async procesarLugarEnvioYEspecialidadYClase(input: LugarEnvioYProcesoInput): Promise<void> {
+  /**
+   * Igual que fase demandante: correo en #IdEmail → Validar → esperar éxito → Continuar en ese modal → espera estable.
+   * Reutilizado en fase 3 apoderado para que el portal ejecute ValidarCorreo() sobre el valor correcto.
+   */
+  private async ejecutarCorreoValidarContinuar(page: Page, email: string): Promise<void> {
+    const emailTrim = (email ?? '').trim();
+    if (!emailTrim) {
+      throw new Error('email_notifications vacío: no se puede validar correo en el portal');
+    }
+
+    await delay(1000);
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>('#IdEmail')?.scrollIntoView({
+        block: 'center',
+        behavior: 'instant',
+      });
+    });
+
+    const emailInput = await page.$('#IdEmail');
+    if (!emailInput) {
+      throw new Error('No se encontró el campo Correo para notificaciones (IdEmail)');
+    }
+
+    await emailInput.click({ clickCount: 3 });
+    await page.keyboard.press('Backspace');
+    await page.type('#IdEmail', emailTrim, { delay: 30 });
+    await page.evaluate((expected: string) => {
+      const input = document.querySelector<HTMLInputElement>('#IdEmail');
+      if (!input) return;
+      if (input.value !== expected) input.value = expected;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+      input.dispatchEvent(new Event('blur', { bubbles: true }));
+    }, emailTrim);
+
+    await delay(400);
+    await page.waitForSelector('#btnValidar', { timeout: 15000 });
+    const validarBtn = await page.$('#btnValidar');
+    if (!validarBtn) {
+      throw new Error('No se encontró el botón "Validar correo para notificaciones" (#btnValidar)');
+    }
+    await validarBtn.evaluate((el) => {
+      (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'instant' });
+    });
+    await delay(200);
+    await validarBtn.click();
+
+    await page.waitForFunction(
+      () => {
+        const holders = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-holder'));
+        for (const h of holders) {
+          const st = getComputedStyle(h);
+          if (st.display === 'none' || st.visibility === 'hidden') continue;
+          const content = h.querySelector<HTMLElement>('.jconfirm-content');
+          if (!content) continue;
+          const txt = (content.innerText || content.textContent || '').toUpperCase();
+          if (txt.includes('CORREO ELECTRONICO VALIDADO CON ÉXITO')) return true;
+        }
+        const content = document.querySelector<HTMLElement>('.jconfirm-content');
+        if (!content) return false;
+        const txt = (content.innerText || content.textContent || '').toUpperCase();
+        return txt.includes('CORREO ELECTRONICO VALIDADO CON ÉXITO');
+      },
+      { timeout: 25000 },
+    );
+
+    await delay(500);
+    await page.evaluate(() => {
+      const holders = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-holder'));
+      for (const h of holders) {
+        const st = getComputedStyle(h);
+        if (st.display === 'none' || st.visibility === 'hidden') continue;
+        const content = h.querySelector<HTMLElement>('.jconfirm-content');
+        if (!content) continue;
+        const txt = (content.innerText || content.textContent || '').toUpperCase();
+        if (!txt.includes('CORREO ELECTRONICO VALIDADO CON ÉXITO')) continue;
+        const buttons = Array.from(
+          h.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
+        );
+        const cont = buttons.find((b) =>
+          /continuar/i.test((b.innerText || b.textContent || '').trim()),
+        );
+        if (cont) {
+          cont.click();
+          return;
+        }
+      }
+      const buttons = Array.from(
+        document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
+      );
+      const cont = buttons.find((b) =>
+        /continuar/i.test((b.innerText || b.textContent || '').trim()),
+      );
+      if (cont) cont.click();
+    });
+
+    await delay(1000);
+  }
+
+  async procesarLugarEnvioYEspecialidadYClase(
+    input: LugarEnvioYProcesoInput,
+  ): Promise<ProcesarLugarEnvioResult> {
     const browser = await this.createBrowser();
     const page = await browser.newPage();
 
     try {
-      // Detail: Automatizando modal
-      await this.managementDemandsOnlineRepository.update({
-        ...input.demanda,
-        management_status: input.demanda.management_status,
-        detail: 'Automatizando modal',
-        updated_at: new Date(),
-      });
+      const rowId = input.demanda.id;
+      await this.persistAutomationDetail(rowId, 'Bot: modal inicial (términos y continuar)');
 
       await this.navigateAndAcceptModal(page);
 
-      // Detail: Automatizando lugar de envío de la demanda
-      await this.managementDemandsOnlineRepository.update({
-        ...input.demanda,
-        management_status: input.demanda.management_status,
-        detail: 'Automatizando lugar de envío de la demanda',
-        updated_at: new Date(),
-      });
+      await this.persistAutomationDetail(rowId, 'Bot: lugar de envío (departamento y ciudad)');
 
       await this.fillLugarEnvio(page, input.departamento, input.ciudad);
       // Dar tiempo a que el portal termine de cargar/normalizar los datos asociados al Lugar de Envío
       await delay(500);
 
-      // Detail: Automatizando especialidad y clase de proceso
-      await this.managementDemandsOnlineRepository.update({
-        ...input.demanda,
-        management_status: input.demanda.management_status,
-        detail: 'Automatizando especialidad y clase de proceso',
-        updated_at: new Date(),
-      });
+      await this.persistAutomationDetail(rowId, 'Bot: especialidad y clase de proceso');
 
       await this.fillEspecialidadYClase(page, input.especialidades, input.clasesProceso);
       await delay(1500);
@@ -92,27 +197,30 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         );
       }
 
-      // Detail: Automatizando sujetos procesales
-      await this.managementDemandsOnlineRepository.update({
-        ...input.demanda,
-        management_status: input.demanda.management_status,
-        detail: 'Automatizando sujetos procesales',
-        updated_at: new Date(),
-      });
+      await this.persistAutomationDetail(rowId, 'Bot: sujetos procesales — demandante jurídico (inicio)');
 
-      await this.fillSujetosProcesalesDemandanteJuridico(page, {
-        nit: nitCarterasPropias,
-        company_name: input.demandante?.company_name ?? '',
-        address: input.demandante?.address ?? '',
-        contact_number: input.demandante?.contact_number ?? '',
-        email_notifications: notificationEmail,
-      }, {
-        document_type_name: input.demandado?.document_type_name ?? '',
-        identification: input.demandado?.identification ?? '',
-        completed_name: input.demandado?.completed_name ?? '',
-        address: this.normalizeUpper(input.demandado?.address ?? ''),
-        phone: input.demandado?.phone ?? '',
-      });
+      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado } =
+        await this.fillSujetosProcesalesDemandanteJuridico(
+          page,
+          rowId,
+          input.demanda,
+          {
+            nit: nitCarterasPropias,
+            company_name: input.demandante?.company_name ?? '',
+            address: input.demandante?.address ?? '',
+            contact_number: input.demandante?.contact_number ?? '',
+            email_notifications: notificationEmail,
+          },
+          {
+            document_type_name: input.demandado?.document_type_name ?? '',
+            identification: input.demandado?.identification ?? '',
+            completed_name: input.demandado?.completed_name ?? '',
+            address: this.normalizeUpper(input.demandado?.address ?? ''),
+            phone: input.demandado?.phone ?? '',
+          },
+          input.apoderado,
+        );
+      return { reachedArchivosAdjuntos, pdfDemandaAdjuntado };
     } finally {
       try {
         await page.close();
@@ -467,6 +575,8 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
   private async fillSujetosProcesalesDemandanteJuridico(
     page: Page,
+    rowId: number,
+    demanda: ManagementDemandsOnline,
     demandante: {
       nit: string;
       company_name: string;
@@ -481,9 +591,20 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       address: string;
       phone: string;
     },
-  ): Promise<void> {
+    apoderado?: {
+      document_name: string;
+      document_number: string;
+      first_name: string;
+      second_name: string;
+      first_last_name: string;
+      second_last_name: string;
+      address: string;
+      contact_number: string;
+      email_notifications: string;
+    },
+  ): Promise<ProcesarLugarEnvioResult> {
     // Fase 1: configuración de Sujetos Procesales para el DEMANDANTE JURÍDICO
-    // 1) Seleccionar Tipo de sujeto = DEMANDANTE
+    await this.persistAutomationDetail(rowId, 'Bot: demandante — tipo sujeto y persona jurídica');
     await delay(500);
 
     const tipoSujetoResult = await page.evaluate(() => {
@@ -623,6 +744,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       throw new Error(tipoDocumentoResult.error ?? 'Error al seleccionar Tipo de documento NIT');
     }
 
+    await this.persistAutomationDetail(rowId, 'Bot: demandante — NIT y datos de contacto');
     // 4) Diligenciar Número de documento con el NIT configurado
     const numeroDocumentoResult = await page.evaluate((nitValue: string) => {
       const normalize = (value: string) =>
@@ -721,61 +843,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       },
     );
 
-    // Esperar un poco extra antes de intervenir el correo, ya que el portal puede alterar el campo
-    await delay(1000);
-
-    const emailInput = await page.$('#IdEmail');
-    if (!emailInput) {
-      throw new Error('No se encontró el campo Correo para notificaciones (IdEmail)');
-    }
-
-    // Asegurar que el correo sea siempre el configurado: hacer clic, seleccionar todo, borrar y escribir el valor
-    await emailInput.click({ clickCount: 3 });
-    await page.keyboard.press('Backspace');
-    await page.type('#IdEmail', demandante.email_notifications, { delay: 30 });
-    await page.evaluate((expected: string) => {
-      const input = document.querySelector<HTMLInputElement>('#IdEmail');
-      if (input) {
-        // Forzar que el valor final sea exactamente el esperado
-        if (input.value !== expected) {
-          input.value = expected;
-        }
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, demandante.email_notifications);
-
-    await page.waitForSelector('#btnValidar', { timeout: 15000 });
-    const validarBtn = await page.$('#btnValidar');
-    if (!validarBtn) {
-      throw new Error('No se encontró el botón "Validar correo para notificaciones"');
-    }
-    await validarBtn.click();
-
-    await page.waitForFunction(
-      () => {
-        const content = document.querySelector<HTMLElement>('.jconfirm-content');
-        if (!content) return false;
-        const txt = (content.innerText || content.textContent || '').toUpperCase();
-        return txt.includes('CORREO ELECTRONICO VALIDADO CON ÉXITO');
-      },
-      { timeout: 20000 },
-    );
-
-    await page.evaluate(() => {
-      const buttons = Array.from(
-        document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
-      );
-      const cont = buttons.find((b) =>
-        /continuar/i.test((b.innerText || b.textContent || '').trim()),
-      );
-      if (cont) cont.click();
-    });
-
-    // Dar tiempo a que el modal cierre y el formulario quede estable
-    await delay(1000);
+    await this.persistAutomationDetail(rowId, 'Bot: demandante — correo y validación');
+    await this.ejecutarCorreoValidarContinuar(page, demandante.email_notifications);
 
     await page.waitForSelector('#btnAddAccionado', { timeout: 15000 });
+    await this.persistAutomationDetail(rowId, 'Bot: demandante — agregar a la grilla');
     const agregarBtn = await page.$('#btnAddAccionado');
     if (!agregarBtn) {
       throw new Error('No se encontró el botón "Agregar" para Sujetos Procesales');
@@ -795,10 +867,12 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         message:
           'Datos de demandado no proporcionados en input.demandado; el flujo se detiene luego de agregar Demandante',
       });
-      return;
+      await this.persistAutomationDetail(rowId, 'Bot: fin demandante (sin demandado en datos)');
+      return { reachedArchivosAdjuntos: false, pdfDemandaAdjuntado: false };
     }
 
     // Fase 2: DEMANDADO NATURAL
+    await this.persistAutomationDetail(rowId, 'Bot: demandado — tipo sujeto y persona natural');
     // 1) Seleccionar Tipo de sujeto = DEMANDADO en #DDlTipoSujeto
     await page.waitForSelector('#DDlTipoSujeto', { timeout: 15000 });
     await page.waitForFunction(
@@ -965,6 +1039,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
+    await this.persistAutomationDetail(rowId, 'Bot: demandado — documento y nombres');
     // 4) Diligenciar Número de documento del Demandado
     const numeroDocumentoDemandadoResult = await page.evaluate((idValue: string) => {
       const normalize = (value: string) =>
@@ -1079,6 +1154,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     }, demandado.completed_name ?? '');
 
     // 6) Tipo de discapacidad = No Aplica
+    await this.persistAutomationDetail(rowId, 'Bot: demandado — discapacidad y localidad');
     await page.waitForSelector('#DDlTipodiscapacidad', { timeout: 15000 });
     const tipoDiscapacidadResult = await page.evaluate(() => {
       const select = document.querySelector<HTMLSelectElement>('#DDlTipodiscapacidad');
@@ -1115,74 +1191,59 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
-    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03) (id = 1476) cuando exista el campo.
-    try {
-      await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
-      await page.waitForFunction(
-        () => {
-          const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
-          if (!select) return false;
-          const options = Array.from(select.options);
-          return options.length > 1;
-        },
-        { timeout: 15000 },
-      );
-
-      const localidadResult = await page.evaluate(() => {
+    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03) (id = 1476). Obligatorio para cerrar el flujo del Demandado;
+    // si el portal no ofrece el select o la opción predeterminada, se marca Novedad en el servicio (no se continúa).
+    await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
         const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
-        if (!select) {
-          return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
-        }
-        const normalize = (value: string) =>
-          value
-            .normalize('NFD')
-            .replace(/[\u0300-\u036f]/g, '')
-            .trim()
-            .toUpperCase();
-        const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
-        const items = Array.from(select.options)
-          .filter((o) => o.textContent && o.textContent.trim().length > 0)
-          .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
-        // Primero intentamos por value fijo 1476 (requisito del negocio)
-        let candidate =
-          items.find((i) => i.option.value === '1476') ??
-          items.find((i) => i.norm === normalize(target)) ??
-          items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
-          items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
+        if (!select) return false;
+        const options = Array.from(select.options);
+        return options.length > 1;
+      },
+      { timeout: 15000 },
+    );
 
-        if (!candidate) {
-          return {
-            ok: false,
-            error:
-              'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) en el select de Localidad (DDlLocalidad)',
-          };
-        }
-        select.value = candidate.option.value;
-        select.dispatchEvent(new Event('change', { bubbles: true }));
-        return { ok: true };
-      });
-
-      if (!localidadResult.ok) {
-        throw new Error(
-          localidadResult.error ??
-            'Error al seleccionar la Localidad "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) para el Demandado',
-        );
+    const localidadResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
+      if (!select) {
+        return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
       }
-    } catch (err) {
-      // Si el campo de localidad no existe en este entorno/ciudad, no bloqueamos el flujo.
-      // El portal mostrará el mensaje si realmente es obligatorio.
-      const error = err as Error;
-      (this.appLogger ?? console).structured?.({
-        level: 'debug',
-        context: BrowserlessPuppeteerAdapter.name,
-        type: 'BROWSER',
-        status: 'WARN',
-        message:
-          'No se cuenta con el select de Localidad para el Demandado; se continúa el flujo.',
-        meta: { error: error.message },
-      });
+      const normalize = (value: string) =>
+        value
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
+      const items = Array.from(select.options)
+        .filter((o) => o.textContent && o.textContent.trim().length > 0)
+        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
+      let candidate =
+        items.find((i) => i.option.value === '1476') ??
+        items.find((i) => i.norm === normalize(target)) ??
+        items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
+        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
+
+      if (!candidate) {
+        return {
+          ok: false,
+          error:
+            'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) en el select de Localidad (DDlLocalidad)',
+        };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+
+    if (!localidadResult.ok) {
+      throw new Error(
+        `LOCALIDAD_PREDETERMINADA_NO_ENCONTRADA: ${localidadResult.error ?? 'Opción de localidad predeterminada no disponible en el portal'}`,
+      );
     }
 
+    await this.persistAutomationDetail(rowId, 'Bot: demandado — dirección, teléfono y agregar');
     // 8) Dirección del Demandado (IdDireccion) en mayúsculas
     await page.evaluate((direccion: string) => {
       const input = document.querySelector<HTMLInputElement>('#IdDireccion');
@@ -1226,6 +1287,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     await delay(1000);
 
     // Fase 3: preparar el formulario para el APODERADO NATURAL y dejar el flujo detenido allí
+    await this.persistAutomationDetail(rowId, 'Bot: apoderado — tipo sujeto y persona natural');
     await page.waitForSelector('#DDlTipoSujeto', { timeout: 15000 });
     await page.waitForFunction(
       () => {
@@ -1314,7 +1376,282 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
-    // Pausa visual: dejar el flujo en el formulario del Apoderado NATURAL
-    await delay(3000);
+    if (!apoderado || !apoderado.document_number || !apoderado.email_notifications) {
+      throw new Error(
+        'Fase apoderado: falta lawyer_data para portfolio_type_id (document_number y email_notifications obligatorios)',
+      );
+    }
+
+    await this.persistAutomationDetail(rowId, 'Bot: apoderado — tipo documento y número');
+    await delay(800);
+    await page.waitForSelector('#DDlTipodocumento', { timeout: 15000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipodocumento');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 15000 },
+    );
+
+    const tipoDocApoderado = await page.evaluate((documentName: string) => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipodocumento');
+      if (!select) return { ok: false, error: 'No se encontró #DDlTipodocumento (apoderado)' };
+      const normalize = (v: string) =>
+        v
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .trim()
+          .toUpperCase();
+      const source = normalize(documentName);
+      const items = Array.from(select.options)
+        .filter((o) => o.value && o.value !== '-1' && (o.textContent ?? '').trim())
+        .map((o) => ({ option: o, norm: normalize(o.textContent ?? '') }));
+      const candidate =
+        items.find((i) => i.norm === source) ??
+        items.find((i) => i.norm.includes(source)) ??
+        items.find((i) => source.includes(i.norm));
+      if (!candidate) {
+        return { ok: false, error: `No se encontró tipo documento apoderado para "${documentName}"` };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    }, apoderado.document_name);
+
+    if (!tipoDocApoderado.ok) {
+      throw new Error(tipoDocApoderado.error ?? 'Tipo documento apoderado');
+    }
+
+    const docClean = this.digitsOnly(apoderado.document_number);
+    await page.evaluate((num: string) => {
+      const input = document.querySelector<HTMLInputElement>('#DocumentodeIdendificacion');
+      if (!input) return;
+      input.focus();
+      input.value = '';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.value = num;
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.blur();
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    }, docClean);
+    await delay(1500);
+    await page.evaluate(
+      (payload: {
+        first_name: string;
+        second_name: string;
+        first_last_name: string;
+        second_last_name: string;
+      }) => {
+        const set = (id: string, val: string) => {
+          const el = document.querySelector<HTMLInputElement>(id);
+          if (!el) return;
+          el.focus();
+          el.value = val;
+          el.dispatchEvent(new Event('input', { bubbles: true }));
+          el.dispatchEvent(new Event('change', { bubbles: true }));
+          el.blur();
+        };
+        set('#PrimerNombre', payload.first_name);
+        set('#SegundoNombre', payload.second_name);
+        set('#PrimerApellido', payload.first_last_name);
+        set('#SegundoApellido', payload.second_last_name);
+      },
+      {
+        first_name: apoderado.first_name,
+        second_name: apoderado.second_name ?? '',
+        first_last_name: apoderado.first_last_name,
+        second_last_name: apoderado.second_last_name ?? '',
+      },
+    );
+
+    await this.persistAutomationDetail(rowId, 'Bot: apoderado — discapacidad, dirección y teléfono');
+    const discApoderado = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipodiscapacidad');
+      if (!select) return { ok: false, error: 'No se encontró #DDlTipodiscapacidad (apoderado)' };
+      const normalize = (v: string) =>
+        v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+      const items = Array.from(select.options)
+        .filter((o) => o.value && o.value !== '-1')
+        .map((o) => ({ option: o, norm: normalize(o.textContent ?? '') }));
+      const c =
+        items.find((i) => i.norm.includes('NO APLICA')) ??
+        items.find((i) => i.norm === 'NO APLICA');
+      if (!c) return { ok: false, error: 'No Aplica en discapacidad apoderado' };
+      select.value = c.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+    if (!discApoderado.ok) throw new Error(discApoderado.error ?? 'Discapacidad apoderado');
+
+    const telClean = this.digitsOnly(apoderado.contact_number);
+    await page.evaluate(
+      (payload: { address: string; phone: string }) => {
+        const dir = document.querySelector<HTMLInputElement>('#IdDireccion');
+        if (dir) {
+          dir.value = payload.address;
+          dir.dispatchEvent(new Event('input', { bubbles: true }));
+          dir.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        const tel = document.querySelector<HTMLInputElement>('#IdTelefono');
+        if (tel) {
+          tel.value = payload.phone;
+          tel.dispatchEvent(new Event('input', { bubbles: true }));
+          tel.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      },
+      { address: this.normalizeUpper(apoderado.address), phone: telClean },
+    );
+
+    await this.persistAutomationDetail(rowId, 'Bot: apoderado — correo, validar, continuar (igual que demandante)');
+    await this.ejecutarCorreoValidarContinuar(page, apoderado.email_notifications);
+
+    await this.persistAutomationDetail(rowId, 'Bot: apoderado — agregar a la grilla');
+    await page.waitForSelector('#btnAddAccionado', { timeout: 15000 });
+    const btnAddAp = await page.$('#btnAddAccionado');
+    if (!btnAddAp) throw new Error('No se encontró #btnAddAccionado (apoderado)');
+    await btnAddAp.click();
+    await delay(2000);
+
+    // Archivos adjuntos: bajar a la sección (a veces queda fuera de viewport hasta hacer scroll).
+    await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — acercando sección y tipo DEMANDA');
+    await page.evaluate(() => {
+      const el =
+        document.querySelector('#DDlTipoArchivo') ??
+        document.querySelector('[id*="TipoArchivo" i]') ??
+        Array.from(document.querySelectorAll('h4, h5, legend, .panel-title')).find((n) =>
+          /archivos?\s+adjuntos?/i.test((n.textContent ?? '').trim()),
+        );
+      (el as HTMLElement | null)?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+    });
+    await delay(1500);
+    await page.waitForSelector('#DDlTipoArchivo', { timeout: 25000 });
+    await page.waitForFunction(
+      () => {
+        const sel = document.querySelector<HTMLSelectElement>('#DDlTipoArchivo');
+        return !!sel && sel.options.length > 2;
+      },
+      { timeout: 15000 },
+    );
+    const tipoArchivoResult = await page.evaluate(() => {
+      const select = document.querySelector<HTMLSelectElement>('#DDlTipoArchivo');
+      if (!select) {
+        return { ok: false, error: 'No se encontró #DDlTipoArchivo' };
+      }
+      const normalize = (v: string) =>
+        v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+      const target = 'DEMANDA';
+      const items = Array.from(select.options)
+        .filter((o) => o.value && o.value !== '-1' && (o.textContent ?? '').trim())
+        .map((o) => ({ option: o, norm: normalize(o.textContent ?? '') }));
+      const candidate =
+        items.find((i) => i.norm === target) ??
+        items.find((i) => i.norm.includes(target)) ??
+        items.find((i) => target.includes(i.norm));
+      if (!candidate) {
+        return { ok: false, error: 'No se encontró la opción DEMANDA en #DDlTipoArchivo' };
+      }
+      select.value = candidate.option.value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+      return { ok: true };
+    });
+    if (!tipoArchivoResult.ok) {
+      throw new Error(tipoArchivoResult.error ?? 'Error al seleccionar tipo archivo DEMANDA');
+    }
+    await delay(800);
+
+    /**
+     * Carpeta temporal por gestión: {management_demands_online.id}-{portfolio_type_id}-{client_id}
+     * (ej. 1-1-149). Misma demanda siempre misma carpeta; si ya existe, se vacía y se guarda solo
+     * el PDF descargado con el mismo nombre que en S3 (basename de path_law_doc). Tras adjuntar,
+     * se elimina la carpeta completa.
+     */
+    const tmpDir = path.join(
+      os.tmpdir(),
+      `${rowId}-${demanda.portfolio_type_id}-${demanda.client_id}`,
+    );
+    let pdfPath: string | null = null;
+    try {
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: archivos adjuntos — generando PDF demanda (client_id / campaign_id)',
+      );
+      const pathDemandaPdf = await this.demandPdfPort.generateDemandOnlinePdf(
+        demanda.client_id,
+        demanda.campaign_id,
+      );
+      const record = await this.managementDemandsOnlineRepository.findById(rowId);
+      record.path_law_doc = pathDemandaPdf;
+      await this.managementDemandsOnlineRepository.update(record);
+
+      await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — descargando PDF (temporal)');
+      fs.mkdirSync(tmpDir, { recursive: true });
+      /** Mismo nombre que el archivo en S3 (último segmento de path_law_doc). */
+      const fileName =
+        path.basename(pathDemandaPdf.trim().replace(/\\/g, '/')) || `demanda-${rowId}.pdf`;
+      if (fs.existsSync(tmpDir)) {
+        for (const name of fs.readdirSync(tmpDir)) {
+          try {
+            fs.unlinkSync(path.join(tmpDir, name));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      pdfPath = path.join(tmpDir, fileName);
+      await this.demandPdfPort.downloadDemandPdfToFile(pathDemandaPdf, pdfPath);
+
+      await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — subiendo PDF al portal');
+      await page.evaluate(() => {
+        document.querySelector<HTMLElement>('#DDlTipoArchivo')?.scrollIntoView({
+          block: 'center',
+          behavior: 'instant',
+        });
+      });
+      await delay(500);
+      const fileInputs = await page.$$('input[type=file]');
+      const fileInput =
+        fileInputs.length === 1
+          ? fileInputs[0]
+          : fileInputs[fileInputs.length - 1] ?? fileInputs[0];
+      if (!fileInput) {
+        throw new Error('No se encontró input[type=file] para adjuntar la demanda');
+      }
+      await fileInput.uploadFile(pdfPath);
+      await delay(2000);
+
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: archivos adjuntos OK — PDF demanda adjuntado; pulse ENVIAR en el portal si aplica.',
+      );
+      await delay(2000);
+      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: archivos adjuntos — error PDF/adjunto: ${msg.slice(0, 280)}`,
+      );
+      this.appLogger.structured({
+        level: 'warn',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSER',
+        status: 'WARN',
+        message: 'Fallo generación/descarga/adjunto PDF demanda',
+        meta: { rowId, error: msg },
+      });
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: archivos adjuntos — tipo DEMANDA OK; adjunte PDF manualmente o revise servicios GENERATE/DOWNLOAD.',
+      );
+      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: false };
+    } finally {
+      if (fs.existsSync(tmpDir)) {
+        try {
+          fs.rmSync(tmpDir, { recursive: true, force: true });
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   }
 }

@@ -17,6 +17,10 @@ import { DataBasesService } from './dataBases.service';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
 import { DATABASES_REPOSITORY, DataBasesRepository } from '@domain/ports/dataBases.ports';
 import { COMPANY_TYPE_REPOSITORY, CompanyTypeRepository } from '@domain/ports/companyType.ports';
+import {
+  LAWYER_DATA_REPOSITORY,
+  LawyerDataRepository,
+} from '@domain/ports/lawyerData.ports';
 
 @Injectable()
 export class DemandsOnlineAutomationService {
@@ -36,6 +40,8 @@ export class DemandsOnlineAutomationService {
     private readonly dataBasesRepository: DataBasesRepository,
     @Inject(COMPANY_TYPE_REPOSITORY)
     private readonly companyTypeRepository: CompanyTypeRepository,
+    @Inject(LAWYER_DATA_REPOSITORY)
+    private readonly lawyerDataRepository: LawyerDataRepository,
     private readonly botControlService: BotControlService,
     private readonly dataBasesService: DataBasesService,
     private readonly appLogger: AppLogger,
@@ -175,6 +181,10 @@ export class DemandsOnlineAutomationService {
 
   private normalizeNit(documentNumber: string): string {
     return (documentNumber ?? '').replace(/\D+/g, '');
+  }
+
+  private normalizePhoneDigits(value: string): string {
+    return (value ?? '').replace(/\D+/g, '');
   }
 
   /**
@@ -375,6 +385,25 @@ export class DemandsOnlineAutomationService {
 
       const companyType = await this.resolveCompanyTypeForDemanda(demanda);
       const demandadoData = await this.resolveDemandadoForDemanda(demanda);
+      const lawyerRow = await this.lawyerDataRepository.findFirstByPortfolioTypeId(
+        demanda.portfolio_type_id,
+      );
+      const apoderadoData =
+        lawyerRow != null
+          ? {
+              document_name: String(lawyerRow.document_name ?? '').trim(),
+              document_number: this.normalizeNit(lawyerRow.document_number),
+              first_name: String(lawyerRow.first_name ?? '').trim(),
+              second_name: String(lawyerRow.second_name ?? '').trim(),
+              first_last_name: String(lawyerRow.first_last_name ?? '').trim(),
+              second_last_name: String(lawyerRow.second_last_name ?? '').trim(),
+              address: String(lawyerRow.address ?? '').trim(),
+              contact_number: this.normalizePhoneDigits(lawyerRow.contact_number),
+              email_notifications: String(lawyerRow.email_notifications ?? '')
+                .trim()
+                .toUpperCase(),
+            }
+          : undefined;
 
       const demandanteData =
         companyType != null
@@ -394,20 +423,29 @@ export class DemandsOnlineAutomationService {
         ? amountType.class_process
         : [amountType.class_process as unknown as string];
 
-      await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
-        demanda,
-        departamento: cityConfig.name_departament,
-        ciudad: cityConfig.name_city,
-        especialidades,
-        clasesProceso,
-        demandante: demandanteData,
-        demandado: demandadoData ?? undefined,
-      });
+      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado } =
+        await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
+          demanda,
+          departamento: cityConfig.name_departament,
+          ciudad: cityConfig.name_city,
+          especialidades,
+          clasesProceso,
+          demandante: demandanteData,
+          demandado: demandadoData ?? undefined,
+          apoderado: apoderadoData,
+        });
+
+      const detailFinal =
+        pdfDemandaAdjuntado === true
+          ? 'Bot: PDF demanda generado, path_law_doc guardado y archivo adjuntado en el portal; envíe desde el portal si falta.'
+          : reachedArchivosAdjuntos
+            ? 'Bot: en archivos adjuntos (tipo DEMANDA). path_law_doc puede estar guardado; si falló la descarga/adjunto, cargue el PDF manualmente.'
+            : 'Bot: demandante en grilla; no hubo demandado en datos — complete demandado, apoderado y adjuntos manual.';
 
       await this.managementDemandsOnlineRepository.update({
         ...demanda,
         management_status: 'En proceso',
-        detail: 'Bot registrando demanda en linea',
+        detail: detailFinal,
         updated_at: new Date(),
       });
 
@@ -417,10 +455,16 @@ export class DemandsOnlineAutomationService {
         type: 'AUTOMATION_JOB',
         status: 'OK',
         message:
-          'Demanda automatizada correctamente hasta Lugar de envío y Especialidad/Clase de Proceso.',
+          pdfDemandaAdjuntado === true
+            ? 'Demanda automatizada con PDF adjuntado en portal (path_law_doc persistido).'
+            : reachedArchivosAdjuntos
+              ? 'Demanda automatizada hasta archivos adjuntos (tipo DEMANDA); revisar adjunto PDF si hubo error de servicios.'
+              : 'Demanda automatizada hasta demandante en grilla (sin flujo completo a adjuntos).',
         meta: {
           management_demands_online_id: demanda.id,
           management_status: 'En proceso',
+          reachedArchivosAdjuntos,
+          pdfDemandaAdjuntado: pdfDemandaAdjuntado === true,
         },
       });
       return { processed: true };
@@ -463,6 +507,13 @@ export class DemandsOnlineAutomationService {
       } else if (lowerMsg.includes('especialidad')) {
         fullDetail =
           'No se pudo seleccionar la especialidad. Verifique el campo specialty_process (amountType) frente al portal.';
+      } else if (
+        lowerMsg.includes('localidad_predeterminada_no_encontrada') ||
+        lowerMsg.includes('ddllocalidad') ||
+        (lowerMsg.includes('localidad') && lowerMsg.includes('desconocida'))
+      ) {
+        fullDetail =
+          'No se encuentra la opción 00 - DESCONOCIDA / DUDOSA (41-03) predeterminada.';
       } else {
         fullDetail =
           'Error automatizando demanda en demandaenlinea. Revise los logs técnicos del bot para más detalle.';

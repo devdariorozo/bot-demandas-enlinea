@@ -32,6 +32,9 @@ export interface LawyerDataRepository {
     document_number: string,
   ): Promise<LawyerData | null>;
 
+  /** Primer registro activo por cartera (automatización fase apoderado). */
+  findFirstByPortfolioTypeId(portfolio_type_id: number): Promise<LawyerData | null>;
+
   findAll(): Promise<LawyerData[]>;
 
   findById(id: number): Promise<LawyerData>;

@@ -8,8 +8,11 @@ import { BotControlModule } from './botControl.module';
 import { DataBasesModule } from './dataBases.module';
 import { LoggerModule } from '@infrastructure/logging/logger.module';
 import { BROWSER_AUTOMATION_PORT } from '@domain/ports/browserAutomation.ports';
+import { DEMAND_PDF_PORT } from '@domain/ports/demandPdf.ports';
 import { BrowserlessPuppeteerAdapter } from '@infrastructure/browser/browserlessPuppeteer.adapter';
+import { DemandPdfHttpAdapter } from '@infrastructure/http/demandPdfHttp.adapter';
 import { CompanyTypeModule } from './companyType.module';
+import { LawyerDataModule } from './lawyerData.module';
 
 @Module({
   imports: [
@@ -19,10 +22,13 @@ import { CompanyTypeModule } from './companyType.module';
     BotControlModule,
     DataBasesModule,
     CompanyTypeModule,
+    LawyerDataModule,
     LoggerModule,
   ],
   providers: [
     DemandsOnlineAutomationService,
+    DemandPdfHttpAdapter,
+    { provide: DEMAND_PDF_PORT, useExisting: DemandPdfHttpAdapter },
     {
       provide: BROWSER_AUTOMATION_PORT,
       useClass: BrowserlessPuppeteerAdapter,

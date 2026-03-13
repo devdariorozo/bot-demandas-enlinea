@@ -34,7 +34,7 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       lawsuit_id: input.lawsuit_id,
       lawsuit_court_assignments_id: input.lawsuit_court_assignments_id,
       client_id: input.client_id,
-      path_law_doc: input.path_law_doc,
+      path_law_doc: input.path_law_doc ?? '',
       lawsuit_status: input.lawsuit_status,
       amount_type_id: input.amount_type_id,
       user_id: input.user_id === 0 || input.user_id == null ? 1 : input.user_id,
@@ -68,7 +68,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'm.lawsuit_id',
         'm.lawsuit_court_assignments_id',
         'm.client_id',
-        'm.path_law_doc',
         'm.lawsuit_status',
         'm.amount_type_id',
         'm.user_id',
@@ -138,7 +137,6 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
         'm.lawsuit_id',
         'm.lawsuit_court_assignments_id',
         'm.client_id',
-        'm.path_law_doc',
         'm.lawsuit_status',
         'm.amount_type_id',
         'm.user_id',
@@ -214,6 +212,12 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       management_status: record.management_status ?? 'Abierta',
     };
     return this.repo.save(toSave);
+  }
+
+  /** detail en BD suele ser VARCHAR(500). */
+  async updateAutomationDetail(id: number, detail: string): Promise<void> {
+    const safe = detail.length > 500 ? `${detail.slice(0, 497)}...` : detail;
+    await this.repo.update({ id }, { detail: safe, updated_at: new Date() });
   }
 
   async delete(id: number): Promise<void> {

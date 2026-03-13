@@ -84,6 +84,7 @@ export class LawyerDataService {
       first_last_name: this.normalizeUpper(input.first_last_name),
       second_last_name: this.normalizeUpper(input.second_last_name),
       address: this.normalizeUpper(input.address),
+      email_notifications: this.normalizeUpper(input.email_notifications),
       detail: this.normalizeDetail(input.detail),
       responsible: this.normalizeResponsible(),
     };
@@ -176,6 +177,7 @@ export class LawyerDataService {
       first_last_name: this.normalizeUpper(lawyer.first_last_name),
       second_last_name: this.normalizeUpper(lawyer.second_last_name),
       address: this.normalizeUpper(lawyer.address),
+      email_notifications: this.normalizeUpper(lawyer.email_notifications),
       detail: this.normalizeDetail(lawyer.detail),
       responsible: this.normalizeResponsible(),
     };

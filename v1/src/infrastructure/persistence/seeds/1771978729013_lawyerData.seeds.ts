@@ -19,7 +19,7 @@ export const lawyerDataSeeds = async (dataSource: DataSource) => {
       second_last_name: 'ACEVEDO',
       address: 'CARRERA 41 NO. 17 - 15',
       contact_number: '313 281 1157',
-      email_notifications: 'demandas@contactosolutions.com',
+      email_notifications: 'DEMANDAS@CONTACTOSOLUTIONS.COM',
       detail: 'Se crea registro con exito.',
       state_type_id: 1,
       created_at: now,

@@ -33,6 +33,10 @@ export interface ManagementDemandsOnlineRepository {
     name_data_base: string,
   ): Promise<ManagementDemandsOnline | null>;
   update(record: ManagementDemandsOnline): Promise<ManagementDemandsOnline>;
+  /**
+   * Actualiza solo detail y updated_at (UPDATE directo). Útil para que la UI vea el paso actual del bot sin depender de save() completo.
+   */
+  updateAutomationDetail(id: number, detail: string): Promise<void>;
   delete(id: number): Promise<void>;
   /**
    * Obtiene de forma atómica la siguiente demanda pendiente (management_status Abierta o Novedad,

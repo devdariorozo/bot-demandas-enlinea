@@ -85,11 +85,12 @@ export class LawyerDataDto {
   contact_number: string;
 
   @ApiProperty({
-    example: 'demandas@contactosolutions.com',
-    description: 'Correo para notificaciones del abogado',
+    example: 'DEMANDAS@CONTACTOSOLUTIONS.COM',
+    description: 'Correo para notificaciones (se guarda siempre en MAYÚSCULAS)',
   })
   @IsString()
   @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   @IsEmail()
   email_notifications: string;
 
@@ -201,11 +202,12 @@ export class UpdateLawyerDataDto {
   contact_number: string;
 
   @ApiProperty({
-    example: 'demandas@contactosolutions.com',
-    description: 'Correo para notificaciones del abogado',
+    example: 'DEMANDAS@CONTACTOSOLUTIONS.COM',
+    description: 'Correo para notificaciones (se guarda siempre en MAYÚSCULAS)',
   })
   @IsString()
   @IsNotEmpty()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
   @IsEmail()
   email_notifications: string;
 

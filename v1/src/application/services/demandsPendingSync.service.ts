@@ -297,7 +297,15 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
   ): Promise<Record<string, unknown>[]> {
     if (idCityViews.length === 0) return [];
     const placeholders = idCityViews.map(() => '?').join(',');
-    const sql = `
+    const fromJoin = `
+      FROM \`${baseName}\`.lawsuits l
+      INNER JOIN \`${baseName}\`.lawsuit_court_assignments lca
+        ON lca.lawsuit_id = l.id
+      WHERE l.lawsuit_status = 'Pendiente'
+        AND l.deleted_at IS NULL
+        AND lca.city_id IN (${placeholders})
+    `;
+    const sqlWithPath = `
       SELECT
         l.id AS lawsuit_id,
         l.client_id AS lawsuit_client_id,
@@ -310,14 +318,34 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
         lca.id AS lawsuit_court_assignments_id,
         lca.client_id AS assignment_client_id,
         lca.city_id
-      FROM \`${baseName}\`.lawsuits l
-      INNER JOIN \`${baseName}\`.lawsuit_court_assignments lca
-        ON lca.lawsuit_id = l.id
-      WHERE l.lawsuit_status = 'Pendiente'
-        AND l.deleted_at IS NULL
-        AND lca.city_id IN (${placeholders})
+      ${fromJoin}
     `;
-    return this.dataBasesRepository.runQueryOnBase(baseName, sql, idCityViews);
+    const sqlWithoutPath = `
+      SELECT
+        l.id AS lawsuit_id,
+        l.client_id AS lawsuit_client_id,
+        l.lawsuit_status,
+        l.type_quantity,
+        l.user_id,
+        l.user_name,
+        l.campaign_id,
+        lca.id AS lawsuit_court_assignments_id,
+        lca.client_id AS assignment_client_id,
+        lca.city_id
+      ${fromJoin}
+    `;
+    try {
+      return await this.dataBasesRepository.runQueryOnBase(baseName, sqlWithPath, idCityViews);
+    } catch (err) {
+      const msg = String((err as Error)?.message ?? '');
+      if (!/path_law_doc|Unknown column/i.test(msg)) throw err;
+      const rows = await this.dataBasesRepository.runQueryOnBase(
+        baseName,
+        sqlWithoutPath,
+        idCityViews,
+      );
+      return rows.map((r) => ({ ...r, path_law_doc: '' }));
+    }
   }
 
   getIntervalMinutes(): number {

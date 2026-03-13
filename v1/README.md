@@ -216,6 +216,7 @@ v1/
 - **Ejecución solo en horario laboral**: el bot opera dentro de las ventanas horarias y días laborables configurados, excluyendo fines de semana y festivos en Colombia.
 - **Soportar múltiples carteras y campañas**: MVP con **Carteras Propias**; extensible a **Carteras Sudameris** y otras, cada una con su estrategia y fuente de datos.
 - **Manejo de adjuntos** (mínimo 1 archivo, máximo 75 MB según restricciones del portal).
+- **PDF de la demanda en adjuntos:** generación del PDF vía servicio de campaña/cliente, descarga desde el **S3 File Manager API** y carga automática en el portal (tipo de archivo **DEMANDA**). Ver sección [Flujo: PDF de la demanda y adjunto en el portal](#-flujo-pdf-de-la-demanda-y-adjunto-en-el-portal).
 - **Gestión de reintentos** ante fallos temporales (timeout, reCAPTCHA, errores del portal).
 - **Registro y trazabilidad** de cada intento de radicación (logs estructurados, auditoría).
 - **Ejecución programada** (jobs) y ejecución manual vía API; documentación de la API con **Swagger**.
@@ -243,6 +244,70 @@ v1/
     - Si encuentra un registro y `is_working_day = 0`, **no permite ejecutar el bot** y devuelve una razón del tipo:
       - `"Hoy (2026-03-23) es festivo no laborable para el bot: DÍA DE SAN JOSÉ"`.
   - Esto permite modelar excepciones donde, aun siendo día hábil en `attention_schedule`, el bot **no debe trabajar** por ser festivo según la tabla `holiday`.
+
+## 📎 Flujo: PDF de la demanda y adjunto en el portal
+
+Cuando el bot llega a **Archivos adjuntos** del portal [demandaenlinea](https://procesojudicial.ramajudicial.gov.co/demandaenlinea), selecciona el tipo **DEMANDA** y debe dejar el PDF correcto en el registro que se está gestionando (`management_demands_online`). El flujo técnico es el siguiente.
+
+### 1. Generar PDF y ruta en storage (`path_law_doc`)
+
+- El bot llama al servicio configurado en **`GENERATE_PDF_DEMAND_SERVICE`** (backend de generación de PDF por campaña/cliente).
+- **Método y ruta:** `POST {GENERATE_PDF_DEMAND_SERVICE}/generateDemandOnlinePdf`
+- **Cuerpo (JSON):** `client_id` y `campaign_id` tomados del registro **`management_demands_online`** en curso.
+- **Respuesta:** se espera un campo **`path_demanda_pdf`** (ruta relativa del archivo en el storage, p. ej. `cartera_propia_QA/demandas_/demanda_3141238_b2fdec85.pdf`).
+- Ese valor se persiste en la columna **`path_law_doc`** del mismo registro para trazabilidad y para la descarga posterior.
+
+### 2. Descargar el PDF (backend S3 / storage local)
+
+La descarga la realiza este bot contra el API documentado en Swagger:
+
+- **Documentación interactiva:** [S3 File Manager API – Swagger UI](https://s3backaws.mysoul.software/docs)
+
+**Endpoint usado por el bot (descarga del archivo):**
+
+| Elemento | Valor |
+|----------|--------|
+| **Método** | `GET` |
+| **Ruta (OpenAPI)** | `/v1/api/local/download/{file_path}` |
+| **URL de ejemplo** | `https://s3backaws.mysoul.software/v1/api/local/download/{file_path}` |
+| **Parámetro de ruta `file_path`** | Ruta relativa del PDF en el storage — es el valor de **`path_law_doc`** devuelto en el paso 1. En la URL debe ir **codificada** (los `/` se envían como `%2F`), igual que en la doc. Ejemplo: `cartera_propia_QA/demandas_/demanda_3141238_b2fdec85.pdf` → segmento URL `cartera_propia_QA%2Fdemandas_%2Fdemanda_3141238_b2fdec85.pdf`. |
+| **Autenticación** | Cabecera **`X-API-Key`**, con el valor de **`DOWNLOAD_PDF_DEMAND_SERVICE_TOKEN`** (autorización tipo *APIKeyHeader* en Swagger). |
+| **Respuesta exitosa** | Cuerpo binario PDF (`Content-Type: application/pdf`); el nombre sugerido suele venir en `Content-Disposition` (p. ej. `demanda_3141238_b2fdec85.pdf`). |
+
+**Variable de entorno para la base del API de descarga:**
+
+- **`DOWNLOAD_PDF_DEMAND_SERVICE`**: base **sin** `/local/download`, por ejemplo:  
+  `https://s3backaws.mysoul.software/v1/api`  
+  El bot construye:  
+  `{DOWNLOAD_PDF_DEMAND_SERVICE}/local/download/{encodeURIComponent(path_law_doc)}`
+
+### 3. Temporal en disco y subida al portal
+
+Para no mezclar PDFs entre varias demandas gestionadas a la vez:
+
+- **Carpeta temporal (por registro):**  
+  `{tmpdir}/{management_demands_online.id}-{portfolio_type_id}-{client_id}`  
+  Ejemplos: `1-1-149`, `154-1-205`.
+- **Nombre del archivo dentro de la carpeta:** igual al archivo en S3 → **`basename(path_law_doc)`** (mismo nombre que al bajar del servicio).
+- Si la carpeta ya existe, se **eliminan los archivos previos** y se guarda solo el PDF recién descargado (sobrescritura explícita del flujo actual).
+- Tras **adjuntar** el archivo en el portal (`input[type=file]` + tipo DEMANDA), se **borra toda la carpeta** temporal; el flujo queda limpio para la siguiente gestión.
+
+### 4. Variables de entorno resumidas
+
+```env
+# Generación del PDF (client_id + campaign_id del registro en gestión)
+GENERATE_PDF_DEMAND_SERVICE=https://tu-api-generacion.com
+
+# Descarga del PDF (base del S3 File Manager API; ver /docs)
+DOWNLOAD_PDF_DEMAND_SERVICE=https://s3backaws.mysoul.software/v1/api
+DOWNLOAD_PDF_DEMAND_SERVICE_TOKEN=sk_...   # X-API-Key
+```
+
+### 5. Código relacionado
+
+- Adaptador HTTP: `src/infrastructure/http/demandPdfHttp.adapter.ts`
+- Puerto: `src/domain/ports/demandPdf.ports.ts`
+- Orquestación en el portal (select DEMANDA, descarga, adjunto): `src/infrastructure/browser/browserlessPuppeteer.adapter.ts`
 
 ## 🔍 Endpoints Principales
 
