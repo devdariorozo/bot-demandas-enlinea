@@ -252,7 +252,7 @@ Cuando el bot llega a **Archivos adjuntos** del portal [demandaenlinea](https://
 ### 1. Generar PDF y ruta en storage (`path_law_doc`)
 
 - El bot llama al servicio configurado en **`GENERATE_PDF_DEMAND_SERVICE`** (backend de generación de PDF por campaña/cliente).
-- **Método y ruta:** `POST {GENERATE_PDF_DEMAND_SERVICE}/generateDemandOnlinePdf`
+- **Método y ruta:** `POST {GENERATE_PDF_DEMAND_SERVICE}/generatedemandonlinepdf`
 - **Cuerpo (JSON):** `client_id` y `campaign_id` tomados del registro **`management_demands_online`** en curso.
 - **Respuesta:** se espera un campo **`path_demanda_pdf`** (ruta relativa del archivo en el storage, p. ej. `cartera_propia_QA/demandas_/demanda_3141238_b2fdec85.pdf`).
 - Ese valor se persiste en la columna **`path_law_doc`** del mismo registro para trazabilidad y para la descarga posterior.
@@ -271,7 +271,7 @@ La descarga la realiza este bot contra el API documentado en Swagger:
 | **Ruta (OpenAPI)** | `/v1/api/local/download/{file_path}` |
 | **URL de ejemplo** | `https://s3backaws.mysoul.software/v1/api/local/download/{file_path}` |
 | **Parámetro de ruta `file_path`** | Ruta relativa del PDF en el storage — es el valor de **`path_law_doc`** devuelto en el paso 1. En la URL debe ir **codificada** (los `/` se envían como `%2F`), igual que en la doc. Ejemplo: `cartera_propia_QA/demandas_/demanda_3141238_b2fdec85.pdf` → segmento URL `cartera_propia_QA%2Fdemandas_%2Fdemanda_3141238_b2fdec85.pdf`. |
-| **Autenticación** | Cabecera **`X-API-Key`**, con el valor de **`DOWNLOAD_PDF_DEMAND_SERVICE_TOKEN`** (autorización tipo *APIKeyHeader* en Swagger). |
+| **Autenticación** | Cabecera **`X-API-Key`**, con el valor de **`DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY`** (autorización tipo *APIKeyHeader* en Swagger). |
 | **Respuesta exitosa** | Cuerpo binario PDF (`Content-Type: application/pdf`); el nombre sugerido suele venir en `Content-Disposition` (p. ej. `demanda_3141238_b2fdec85.pdf`). |
 
 **Variable de entorno para la base del API de descarga:**
@@ -300,7 +300,7 @@ GENERATE_PDF_DEMAND_SERVICE=https://tu-api-generacion.com
 
 # Descarga del PDF (base del S3 File Manager API; ver /docs)
 DOWNLOAD_PDF_DEMAND_SERVICE=https://s3backaws.mysoul.software/v1/api
-DOWNLOAD_PDF_DEMAND_SERVICE_TOKEN=sk_...   # X-API-Key
+DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY=sk_...   # X-API-Key
 ```
 
 ### 5. Código relacionado

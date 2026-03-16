@@ -2,7 +2,7 @@ export const DEMAND_PDF_PORT = Symbol('DEMAND_PDF_PORT');
 
 export interface DemandPdfPort {
   /**
-   * POST {base}/generateDemandOnlinePdf con client_id y campaign_id.
+   * POST {base}/external/lawsuits/generatedemandonlinepdf con client_id y campaign_id.
    * Devuelve path_demanda_pdf (clave/ruta para descargar en S3).
    */
   generateDemandOnlinePdf(clientId: number, campaignId: number): Promise<string>;

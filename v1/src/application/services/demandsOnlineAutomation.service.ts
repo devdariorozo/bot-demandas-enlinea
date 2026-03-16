@@ -437,14 +437,26 @@ export class DemandsOnlineAutomationService {
 
       const detailFinal =
         pdfDemandaAdjuntado === true
-          ? 'Bot: PDF demanda generado, path_law_doc guardado y archivo adjuntado en el portal; envíe desde el portal si falta.'
+          ? 'Bot: PDF DEMANDA generado y adjuntado correctamente en el portal.'
           : reachedArchivosAdjuntos
-            ? 'Bot: en archivos adjuntos (tipo DEMANDA). path_law_doc puede estar guardado; si falló la descarga/adjunto, cargue el PDF manualmente.'
-            : 'Bot: demandante en grilla; no hubo demandado en datos — complete demandado, apoderado y adjuntos manual.';
+            ? 'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.'
+            : 'Bot: demandante en grilla; complete demandado, apoderado y adjuntos manualmente.';
+
+      const managementStatusFinal =
+        pdfDemandaAdjuntado === true
+          ? 'En proceso'
+          : reachedArchivosAdjuntos
+            ? 'Novedad'
+            : 'En proceso';
+
+      const refreshedDemanda =
+        pdfDemandaAdjuntado === true || reachedArchivosAdjuntos
+          ? await this.managementDemandsOnlineRepository.findById(demanda.id)
+          : demanda;
 
       await this.managementDemandsOnlineRepository.update({
-        ...demanda,
-        management_status: 'En proceso',
+        ...refreshedDemanda,
+        management_status: managementStatusFinal,
         detail: detailFinal,
         updated_at: new Date(),
       });
@@ -462,7 +474,7 @@ export class DemandsOnlineAutomationService {
               : 'Demanda automatizada hasta demandante en grilla (sin flujo completo a adjuntos).',
         meta: {
           management_demands_online_id: demanda.id,
-          management_status: 'En proceso',
+          management_status: managementStatusFinal,
           reachedArchivosAdjuntos,
           pdfDemandaAdjuntado: pdfDemandaAdjuntado === true,
         },
@@ -522,8 +534,10 @@ export class DemandsOnlineAutomationService {
       const truncatedDetail =
         fullDetail.length > 480 ? `${fullDetail.slice(0, 480)}...` : fullDetail;
 
+      const refreshedDemanda = await this.managementDemandsOnlineRepository.findById(demanda.id);
+
       await this.managementDemandsOnlineRepository.update({
-        ...demanda,
+        ...refreshedDemanda,
         management_status: 'Novedad',
         detail: truncatedDetail,
         updated_at: new Date(),

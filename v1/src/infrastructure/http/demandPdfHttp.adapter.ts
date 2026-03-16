@@ -14,13 +14,18 @@ export class DemandPdfHttpAdapter implements DemandPdfPort {
 
   async generateDemandOnlinePdf(clientId: number, campaignId: number): Promise<string> {
     const base = this.configService.get<string>('GENERATE_PDF_DEMAND_SERVICE')?.replace(/\/$/, '') ?? '';
+    const apiKey = this.configService.get<string>('GENERATE_PDF_DEMAND_SERVICE_API_KEY') ?? '';
     if (!base) {
       throw new Error('GENERATE_PDF_DEMAND_SERVICE no configurado');
     }
-    const url = `${base}/generateDemandOnlinePdf`;
+    const url = `${base}/external/lawsuits/generatedemandonlinepdf`;
     const res = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
+      },
       body: JSON.stringify({ client_id: clientId, campaign_id: campaignId }),
     });
     const text = await res.text();
@@ -35,10 +40,16 @@ export class DemandPdfHttpAdapter implements DemandPdfPort {
     } catch {
       throw new Error('generateDemandOnlinePdf: respuesta no es JSON');
     }
+    const data = (json.data ?? json) as Record<string, unknown>;
     const path =
-      (json.path_demanda_pdf as string) ??
-      (json.pathDemandaPdf as string) ??
-      (json.data as Record<string, unknown>)?.path_demanda_pdf;
+      (json.path_demanda_pdf as string) ||
+      (json.pathDemandaPdf as string) ||
+      (json.path_law_doc as string) ||
+      (json.pathLawDoc as string) ||
+      (data.path_demanda_pdf as string) ||
+      (data.pathDemandaPdf as string) ||
+      (data.path_law_doc as string) ||
+      (data.pathLawDoc as string);
     if (typeof path !== 'string' || !path.trim()) {
       throw new Error('generateDemandOnlinePdf: falta path_demanda_pdf en la respuesta');
     }
@@ -53,7 +64,7 @@ export class DemandPdfHttpAdapter implements DemandPdfPort {
    */
   async downloadDemandPdfToFile(pathDemandaPdf: string, absoluteFilePath: string): Promise<void> {
     const base = this.configService.get<string>('DOWNLOAD_PDF_DEMAND_SERVICE')?.replace(/\/$/, '') ?? '';
-    const token = this.configService.get<string>('DOWNLOAD_PDF_DEMAND_SERVICE_TOKEN') ?? '';
+    const apiKey = this.configService.get<string>('DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY') ?? '';
     if (!base) {
       throw new Error('DOWNLOAD_PDF_DEMAND_SERVICE no configurado');
     }
@@ -66,7 +77,7 @@ export class DemandPdfHttpAdapter implements DemandPdfPort {
     const res = await fetch(url, {
       method: 'GET',
       headers: {
-        ...(token ? { 'X-API-Key': token } : {}),
+        ...(apiKey ? { 'X-API-Key': apiKey } : {}),
         Accept: 'application/pdf, */*',
       },
     });
