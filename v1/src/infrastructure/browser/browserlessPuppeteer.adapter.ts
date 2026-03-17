@@ -278,7 +278,9 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
     const token = tokenRaw.replace(/^['"]|['"]$/g, '');
     const wsBase = endpoint.replace(/^http/i, 'ws');
-    const browserWSEndpoint = `${wsBase}?token=${encodeURIComponent(token)}`;
+    const browserWSEndpoint = `${wsBase}?token=${encodeURIComponent(
+      token,
+    )}&solveCaptchas=true`;
 
     this.appLogger.structured({
       level: 'debug',
@@ -1621,12 +1623,118 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
       await this.persistAutomationDetail(
         rowId,
-        'Bot: archivos adjuntos OK — PDF demanda adjuntado; pulse ENVIAR en el portal si aplica.',
+        'Bot: archivos adjuntos — PDF demanda adjuntado; clic en Agregar Archivo.',
       );
-      await delay(2000);
-      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true };
+
+      const addFileBtn = await page.$('#btnAddfile');
+      if (!addFileBtn) {
+        throw new Error('No se encontró el botón Agregar Archivo (#btnAddfile) después de adjuntar el PDF');
+      }
+      await addFileBtn.evaluate((el) => {
+        (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'instant' });
+      });
+      await delay(500);
+      await addFileBtn.click();
+      await delay(3000);
+
+      await this.solveRecaptcha(page, rowId);
+
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: reCAPTCHA resuelto — abriendo modal Confirmar Datos (sin enviar).',
+      );
+
+      const enviarBtn = await page.$('#enviar');
+      if (!enviarBtn) {
+        throw new Error('No se encontró el botón ENVIAR (#enviar) después del reCAPTCHA');
+      }
+      await enviarBtn.evaluate((el) => {
+        (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'instant' });
+      });
+      await delay(500);
+      await enviarBtn.click();
+      await delay(3000);
+
+      await page.waitForFunction(
+        () => {
+          const boxes = Array.from(
+            document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
+          );
+          return boxes.some((b) =>
+            /confirmar\s+datos/i.test((b.innerText || b.textContent || '').trim()),
+          );
+        },
+        { timeout: 15000 },
+      );
+
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: modal Confirmar Datos abierto — clic en "SI" para registrar la demanda.',
+      );
+
+      /**
+       * MODO 1 (actual, por defecto) — ENVÍO SIMULADO:
+       *   - No se hace clic en "Si" en el modal.
+       *   - Se considera que la demanda quedó registrada de forma simulada.
+       */
+      await delay(3000);
+      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true, demandaRegistrada: true };
+
+      /**
+       * MODO 2 (futuro, producción) — ENVÍO REAL:
+       *   - Comentar el bloque SIMULADO anterior.
+       *   - Descomentar el bloque siguiente para hacer clic real en "Si".
+       *   - Si algo falla (no se encuentra el botón, error de DOM, etc.), se lanza
+       *     un error y se manejará en el catch general, devolviendo demandaRegistrada = false.
+       *
+       * // ENVÍO REAL (descomentar para producción):
+       * //
+       * // const siBtnHandle = await page.evaluateHandle(() => {
+       * //   const buttons = Array.from(
+       * //     document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
+       * //   );
+       * //   return (
+       * //     buttons.find((b) =>
+       * //       /^si$/i.test((b.innerText || b.textContent || '').trim()),
+       * //     ) ?? null
+       * //   );
+       * // });
+       * // const siEl = siBtnHandle.asElement();
+       * // if (!siEl) {
+       * //   throw new Error('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_CONFIRMAR_DATOS');
+       * // }
+       * //
+       * // await (siEl as unknown as HTMLElement).click();
+       * // await delay(1000);
+       * //
+       * // return {
+       * //   reachedArchivosAdjuntos: true,
+       * //   pdfDemandaAdjuntado: true,
+       * //   demandaRegistrada: true,
+       * // };
+       */
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      const lower = msg.toLowerCase();
+      const isRecaptchaError =
+        lower.includes('recaptcha_no_resuelto') || lower.includes('browserless_solve_captcha');
+
+      if (isRecaptchaError) {
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: reCAPTCHA — no se pudo resolver automáticamente: ${msg.slice(0, 200)}`,
+        );
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'Fallo al resolver reCAPTCHA en demandaenlinea',
+          meta: { rowId, error: msg },
+        });
+        return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true, demandaRegistrada: false };
+      }
+
       await this.persistAutomationDetail(
         rowId,
         `Bot: archivos adjuntos — error PDF/adjunto: ${msg.slice(0, 280)}`,
@@ -1643,7 +1751,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         rowId,
         'Bot: archivos adjuntos — tipo DEMANDA OK; adjunte PDF manualmente o revise servicios GENERATE/DOWNLOAD.',
       );
-      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: false };
+      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: false, demandaRegistrada: false };
     } finally {
       if (fs.existsSync(tmpDir)) {
         try {
@@ -1652,6 +1760,90 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           /* ignore */
         }
       }
+    }
+  }
+
+  private async solveRecaptcha(page: Page, rowId: number): Promise<void> {
+    await this.persistAutomationDetail(
+      rowId,
+      'Bot: reCAPTCHA — resolviendo automáticamente con Browserless.',
+    );
+
+    await page.evaluate(() => {
+      document.querySelector<HTMLElement>('.g-recaptcha')?.scrollIntoView({
+        block: 'center',
+        behavior: 'instant',
+      });
+    });
+    await delay(1500);
+
+    const cdp = await page.createCDPSession();
+
+    type CaptchaAutoSolvedPayload = {
+      token?: string;
+      found?: boolean;
+      solved?: boolean;
+      time?: number;
+      error?: string;
+    };
+
+    const waitForCaptchaResolved = (timeoutMs = 180000): Promise<CaptchaAutoSolvedPayload | null> =>
+      new Promise((resolve) => {
+        const timeout = setTimeout(() => {
+          resolve(null);
+        }, timeoutMs);
+
+        (cdp as any).on('Browserless.captchaAutoSolved', (params: CaptchaAutoSolvedPayload) => {
+          clearTimeout(timeout);
+          resolve(params);
+        });
+
+        (cdp as any).on('Browserless.captchaFound', () => {
+          // solo informativo
+        });
+      });
+
+    const result = await waitForCaptchaResolved();
+
+    if (!result) {
+      throw new Error(
+        'RECAPTCHA_NO_RESUELTO: Browserless no completó el desafío en el tiempo esperado (180 segundos).',
+      );
+    }
+
+    if (result.error) {
+      throw new Error(
+        `BROWSERLESS_SOLVE_CAPTCHA_ERROR: ${result.error} (found=${String(
+          result.found,
+        )}, solved=${String(result.solved)})`,
+      );
+    }
+
+    if (!result.solved) {
+      throw new Error(
+        `RECAPTCHA_NO_RESUELTO: Browserless.captchaAutoSolved devolvió solved=false (found=${String(
+          result.found,
+        )}).`,
+      );
+    }
+
+    const recaptchaSolved = await page
+      .waitForFunction(
+        () => {
+          const textarea = document.querySelector<HTMLTextAreaElement>('#g-recaptcha-response');
+          return !!textarea && !!textarea.value && textarea.value.trim().length > 0;
+        },
+        { timeout: 120000 },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
+
+    if (!recaptchaSolved) {
+      throw new Error(
+        'RECAPTCHA_NO_RESUELTO: el reCAPTCHA no se completó en el tiempo esperado (120 segundos).',
+      );
     }
   }
 }

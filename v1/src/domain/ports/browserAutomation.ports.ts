@@ -51,6 +51,11 @@ export interface ProcesarLugarEnvioResult {
   reachedArchivosAdjuntos: boolean;
   /** true si se generó path_law_doc, se descargó el PDF y se subió al input file del portal. */
   pdfDemandaAdjuntado?: boolean;
+  /**
+   * true si, tras adjuntar el PDF y pasar por reCAPTCHA, el flujo de ENVIAR
+   * se considera exitoso (puede ser real o simulado según el adapter).
+   */
+  demandaRegistrada?: boolean;
 }
 
 export interface BrowserAutomationPort {

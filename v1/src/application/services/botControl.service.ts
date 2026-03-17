@@ -255,8 +255,26 @@ export class BotControlService implements OnModuleInit {
         responsible?: string;
       }): Promise<BotStatus> => {
         const runningForId = !!record.running;
-        const reason =
+
+        // Motivo base persistido en bot_control (start/stop).
+        let effectiveReason =
           record.reason ?? (runningForId ? 'Bot en ejecución' : 'Bot detenido');
+
+        // Si el bot está marcado como en ejecución, enriquecemos el motivo
+        // con el estado actual de las condiciones de runtime (horario, festivos, etc.).
+        if (runningForId) {
+          try {
+            const rt = await this.checkRuntimeConditions(record.data_bases_id);
+            if (rt.ok) {
+              effectiveReason =
+                'Bot iniciado y listo para procesar demandas pendientes';
+            } else if (rt.reason) {
+              effectiveReason = `Bot en ejecución (standby): ${rt.reason}`;
+            }
+          } catch {
+            // Si falla la validación en caliente, conservamos el motivo persistido.
+          }
+        }
 
         const tsSource = runningForId
           ? record.last_started_at ?? record.updated_at ?? record.created_at
@@ -276,7 +294,7 @@ export class BotControlService implements OnModuleInit {
           data_bases_id: record.data_bases_id,
           label_data_base,
           running: runningForId,
-          reason,
+          reason: effectiveReason,
           timestamp,
           responsible: record.responsible,
         };

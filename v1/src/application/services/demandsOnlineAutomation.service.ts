@@ -423,7 +423,7 @@ export class DemandsOnlineAutomationService {
         ? amountType.class_process
         : [amountType.class_process as unknown as string];
 
-      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado } =
+      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado, demandaRegistrada } =
         await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
           demanda,
           departamento: cityConfig.name_departament,
@@ -435,50 +435,97 @@ export class DemandsOnlineAutomationService {
           apoderado: apoderadoData,
         });
 
-      const detailFinal =
-        pdfDemandaAdjuntado === true
-          ? 'Bot: PDF DEMANDA generado y adjuntado correctamente en el portal.'
-          : reachedArchivosAdjuntos
-            ? 'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.'
-            : 'Bot: demandante en grilla; complete demandado, apoderado y adjuntos manualmente.';
-
-      const managementStatusFinal =
-        pdfDemandaAdjuntado === true
-          ? 'En proceso'
-          : reachedArchivosAdjuntos
-            ? 'Novedad'
-            : 'En proceso';
-
       const refreshedDemanda =
-        pdfDemandaAdjuntado === true || reachedArchivosAdjuntos
+        demandaRegistrada === true || pdfDemandaAdjuntado === true || reachedArchivosAdjuntos
           ? await this.managementDemandsOnlineRepository.findById(demanda.id)
           : demanda;
 
-      await this.managementDemandsOnlineRepository.update({
-        ...refreshedDemanda,
-        management_status: managementStatusFinal,
-        detail: detailFinal,
-        updated_at: new Date(),
-      });
+      if (demandaRegistrada === true) {
+        const updatedDemanda = await this.managementDemandsOnlineRepository.update({
+          ...refreshedDemanda,
+          lawsuit_status: 'Presentada por aplicativo',
+          management_status: 'Registrada',
+          detail: 'Demanda en linea registrada con exito y sincronizada con lawsuits externa.',
+          updated_at: new Date(),
+        });
 
-      this.appLogger.structured({
-        level: 'debug',
-        context: DemandsOnlineAutomationService.name,
-        type: 'AUTOMATION_JOB',
-        status: 'OK',
-        message:
-          pdfDemandaAdjuntado === true
-            ? 'Demanda automatizada con PDF adjuntado en portal (path_law_doc persistido).'
-            : reachedArchivosAdjuntos
-              ? 'Demanda automatizada hasta archivos adjuntos (tipo DEMANDA); revisar adjunto PDF si hubo error de servicios.'
-              : 'Demanda automatizada hasta demandante en grilla (sin flujo completo a adjuntos).',
-        meta: {
-          management_demands_online_id: demanda.id,
+        if (updatedDemanda.name_data_base && updatedDemanda.lawsuit_id) {
+          const baseName = updatedDemanda.name_data_base;
+          const sql = `
+            UPDATE \`${baseName}\`.lawsuits
+            SET
+              path_law_doc = ?,
+              lawsuit_status = ?,
+              user_id = ?,
+              user_name = ?
+            WHERE id = ?
+          `;
+          await this.dataBasesRepository.runQueryOnBase(baseName, sql, [
+            updatedDemanda.path_law_doc ?? '',
+            updatedDemanda.lawsuit_status ?? 'Presentada por aplicativo',
+            updatedDemanda.user_id ?? 1,
+            updatedDemanda.user_name ?? 'BOT demands online',
+            updatedDemanda.lawsuit_id,
+          ]);
+        }
+
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'OK',
+          message:
+            'Demanda en linea registrada con exito y sincronizada con lawsuits externa.',
+          meta: {
+            management_demands_online_id: demanda.id,
+            management_status: 'Registrada',
+            lawsuit_status: 'Presentada por aplicativo',
+            reachedArchivosAdjuntos,
+            pdfDemandaAdjuntado: pdfDemandaAdjuntado === true,
+            demandaRegistrada: true,
+          },
+        });
+      } else {
+        let detailFinal: string;
+        let managementStatusFinal: 'Novedad' | 'En proceso';
+
+        if (!reachedArchivosAdjuntos) {
+          detailFinal =
+            'Bot: demandante en grilla; complete demandado, apoderado y adjuntos manualmente.';
+          managementStatusFinal = 'En proceso';
+        } else if (pdfDemandaAdjuntado === true) {
+          detailFinal =
+            'Bot: DEMANDA adjuntada con éxito; reCAPTCHA o envío final no se completó automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
+          managementStatusFinal = 'Novedad';
+        } else {
+          detailFinal =
+            'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.';
+          managementStatusFinal = 'Novedad';
+        }
+
+        await this.managementDemandsOnlineRepository.update({
+          ...refreshedDemanda,
           management_status: managementStatusFinal,
-          reachedArchivosAdjuntos,
-          pdfDemandaAdjuntado: pdfDemandaAdjuntado === true,
-        },
-      });
+          detail: detailFinal,
+          updated_at: new Date(),
+        });
+
+        this.appLogger.structured({
+          level: 'debug',
+          context: DemandsOnlineAutomationService.name,
+          type: 'AUTOMATION_JOB',
+          status: 'OK',
+          message: reachedArchivosAdjuntos
+            ? 'Demanda automatizada hasta archivos adjuntos (tipo DEMANDA); revisar adjunto PDF si hubo error de servicios.'
+            : 'Demanda automatizada hasta demandante en grilla (sin flujo completo a adjuntos).',
+          meta: {
+            management_demands_online_id: demanda.id,
+            management_status: managementStatusFinal,
+            reachedArchivosAdjuntos,
+            pdfDemandaAdjuntado: pdfDemandaAdjuntado === true,
+          },
+        });
+      }
       return { processed: true };
     } catch (err) {
       const error = err as Error;
