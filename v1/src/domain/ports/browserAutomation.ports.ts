@@ -24,6 +24,14 @@ export interface LugarEnvioYProcesoInput {
     document_type_name: string;
     /** Número de identificación del demandado (clients.identification). */
     identification: string;
+    /** Primer nombre (clients.first_name). */
+    first_name: string;
+    /** Segundo nombre (clients.second_name). */
+    second_name: string;
+    /** Primer apellido (clients.first_last_name). */
+    first_last_name: string;
+    /** Segundo apellido (clients.second_last_name). */
+    second_last_name: string;
     /** Nombre completo tal como viene en completed_name. */
     completed_name: string;
     /** Dirección del demandado en mayúsculas (lawsuit_court_assignments.client_address). */
@@ -70,7 +78,13 @@ export interface ProcesarLugarEnvioResult {
   /** Acción concreta tomada en el modal de confirmación: 'SI' o 'NO'. */
   confirmarDatosAction?: 'SI' | 'NO';
   /** Código corto de la falla para armar mensajes finales coherentes. */
-  failureStage?: 'recaptcha' | 'modal_not_opened' | 'pdf_attach' | 'unknown';
+  failureStage?:
+    | 'recaptcha'
+    | 'modal_not_opened'
+    | 'pdf_generate'
+    | 'pdf_download'
+    | 'pdf_attach'
+    | 'unknown';
 }
 
 export interface BrowserAutomationPort {

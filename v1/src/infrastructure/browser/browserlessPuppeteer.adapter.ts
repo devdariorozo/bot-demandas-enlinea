@@ -214,6 +214,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           {
             document_type_name: input.demandado?.document_type_name ?? '',
             identification: input.demandado?.identification ?? '',
+            first_name: input.demandado?.first_name ?? '',
+            second_name: input.demandado?.second_name ?? '',
+            first_last_name: input.demandado?.first_last_name ?? '',
+            second_last_name: input.demandado?.second_last_name ?? '',
             completed_name: input.demandado?.completed_name ?? '',
             address: this.normalizeUpper(input.demandado?.address ?? ''),
             phone: input.demandado?.phone ?? '',
@@ -303,6 +307,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       'https://procesojudicial.ramajudicial.gov.co/demandaenlinea';
 
     await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+
+    // A veces el portal muestra un modal de "Información Importante" (vacancia judicial)
+    // antes de los términos. Si existe, hacemos click en "Continuar" y seguimos.
+    await this.maybeHandleInfoImportantModal(page);
+
     await page.waitForSelector('#enableCheckbox', { timeout: 15000 });
 
     const checkbox = await page.$('#enableCheckbox');
@@ -323,6 +332,41 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     await delay(500);
     await page.waitForSelector('#DdlDepartamento', { timeout: 5000 });
     await page.waitForSelector('#DDlCiudad', { timeout: 5000 });
+  }
+
+  /**
+   * Si aparece el modal "Información Importante" (vacancia judicial),
+   * hace click en el botón "Continuar" y espera a que desaparezca.
+   */
+  private async maybeHandleInfoImportantModal(page: Page): Promise<void> {
+    const clicked = await page.evaluate(() => {
+      const titles = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'));
+      const infoTitle = titles.find((t) => /informaci[oó]n importante/i.test((t.textContent || '').trim()));
+      if (!infoTitle) return false;
+
+      const box = infoTitle.closest<HTMLElement>('.jconfirm-box');
+      if (!box) return false;
+
+      const buttons = Array.from(
+        box.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn, .jconfirm-buttons button'),
+      );
+      const continuarBtn = buttons.find((b) => /continuar/i.test((b.textContent || '').trim()));
+      if (!continuarBtn) return false;
+
+      continuarBtn.click();
+      return true;
+    });
+
+    if (!clicked) return;
+
+    // Espera breve para que el modal se cierre.
+    await page.waitForFunction(
+      () => {
+        const titles = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'));
+        return !titles.some((t) => /informaci[oó]n importante/i.test((t.textContent || '').trim()));
+      },
+      { timeout: 10000, polling: 100 },
+    );
   }
 
   private async fillLugarEnvio(
@@ -589,6 +633,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     demandado?: {
       document_type_name: string;
       identification: string;
+      first_name: string;
+      second_name: string;
+      first_last_name: string;
+      second_last_name: string;
       completed_name: string;
       address: string;
       phone: string;
@@ -1089,8 +1137,14 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     // Dar tiempo al portal para que termine de cargar/normalizar los datos asociados al documento
     await delay(1500);
 
-    // 5) Diligenciar nombres y apellidos usando completed_name
-    await page.evaluate((completedNameRaw: string) => {
+    // 5) Diligenciar nombres y apellidos usando clients.* (sin split de completed_name)
+    await page.evaluate(
+      (payload: {
+        first_name: string;
+        second_name: string;
+        first_last_name: string;
+        second_last_name: string;
+      }) => {
       const normalizeBase = (value: string) =>
         value
           .normalize('NFD')
@@ -1124,16 +1178,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         return null;
       };
 
-      // Regla solicitada:
-      // - Tomar la primera palabra como Primer Nombre.
-      // - Tomar la última palabra como Primer Apellido.
-      // - Dejar Segundo Nombre y Segundo Apellido en blanco.
-      const normalized = normalizeBase(completedNameRaw ?? '');
-      const parts = normalized ? normalized.split(' ').filter(Boolean) : [];
-      const firstName = parts.length > 0 ? parts[0] : '';
-      const firstLastName = parts.length > 0 ? parts[parts.length - 1] : '';
-      const secondName = '';
-      const secondLastName = '';
+      const firstName = normalizeBase(payload.first_name ?? '');
+      const secondName = normalizeBase(payload.second_name ?? '');
+      const firstLastName = normalizeBase(payload.first_last_name ?? '');
+      const secondLastName = normalizeBase(payload.second_last_name ?? '');
 
       const applyValue = (label: string, value: string) => {
         const input = findInputByLabelText(label);
@@ -1153,7 +1201,14 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       applyValue('Segundo Nombre', secondName);
       applyValue('Primer Apellido', firstLastName);
       applyValue('Segundo Apellido', secondLastName);
-    }, demandado.completed_name ?? '');
+      },
+      {
+        first_name: demandado.first_name ?? '',
+        second_name: demandado.second_name ?? '',
+        first_last_name: demandado.first_last_name ?? '',
+        second_last_name: demandado.second_last_name ?? '',
+      },
+    );
 
     // 6) Tipo de discapacidad = No Aplica
     await this.persistAutomationDetail(rowId, 'Bot: demandado — discapacidad y localidad');
@@ -1515,7 +1570,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     await delay(2000);
 
     // Archivos adjuntos: bajar a la sección (a veces queda fuera de viewport hasta hacer scroll).
-    await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — acercando sección y tipo DEMANDA');
+    await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — acercando sección y seleccionando la opción DEMANDA');
     await page.evaluate(() => {
       const el =
         document.querySelector('#DDlTipoArchivo') ??
@@ -1582,15 +1637,52 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     let pdfAttached = false;
     // Indica que el siguiente waitForFunction esperado es "modal Confirmar Datos".
     let awaitingConfirmarDatosModal = false;
+    let confirmarDatosModalDebug:
+      | {
+          titles: string[];
+          buttonLabels: string[];
+          visibleBoxes: number;
+        }
+      | undefined;
     try {
       await this.persistAutomationDetail(
         rowId,
         'Bot: archivos adjuntos — generando PDF demanda (client_id / campaign_id)',
       );
-      const pathDemandaPdf = await this.demandPdfPort.generateDemandOnlinePdf(
-        demanda.client_id,
-        demanda.campaign_id,
-      );
+      let pathDemandaPdf: string;
+      try {
+        pathDemandaPdf = await this.demandPdfPort.generateDemandOnlinePdf(
+          demanda.client_id,
+          demanda.campaign_id,
+        );
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: error generando PDF DEMANDA (GENERATE_PDF_DEMAND_SERVICE): ${msg.slice(0, 280)}`,
+        );
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'Fallo generación de PDF DEMANDA',
+          meta: { rowId, error: msg },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: false,
+          demandaRegistrada: false,
+          captchaResolved: false,
+          enviarClicked: false,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'pdf_generate',
+        };
+      }
+
       const record = await this.managementDemandsOnlineRepository.findById(rowId);
       record.path_law_doc = pathDemandaPdf;
       await this.managementDemandsOnlineRepository.update(record);
@@ -1610,7 +1702,45 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         }
       }
       pdfPath = path.join(tmpDir, fileName);
-      await this.demandPdfPort.downloadDemandPdfToFile(pathDemandaPdf, pdfPath);
+      try {
+        await this.demandPdfPort.downloadDemandPdfToFile(pathDemandaPdf, pdfPath);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: error descargando PDF DEMANDA (DOWNLOAD_PDF_DEMAND_SERVICE): ${msg.slice(0, 280)}`,
+        );
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'Fallo descarga de PDF DEMANDA',
+          meta: { rowId, error: msg },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: false,
+          demandaRegistrada: false,
+          captchaResolved: false,
+          enviarClicked: false,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'pdf_download',
+        };
+      }
+
+      // Validación defensiva: si el servicio de descarga falla "a medias", Puppeteer
+      // puede lanzar errores poco claros al intentar leer/subir el archivo.
+      if (!fs.existsSync(pdfPath)) {
+        throw new Error(`PDF no existe tras descarga: ${pdfPath}`);
+      }
+      const pdfStat = fs.statSync(pdfPath);
+      if (!pdfStat || pdfStat.size < 64) {
+        throw new Error(`PDF tamaño inválido tras descarga: ${pdfPath} (${pdfStat?.size ?? 'unknown'} bytes)`);
+      }
 
       await this.persistAutomationDetail(rowId, 'Bot: archivos adjuntos — subiendo PDF al portal');
       await page.evaluate(() => {
@@ -1653,7 +1783,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
       await this.persistAutomationDetail(
         rowId,
-        'Bot: reCAPTCHA resuelto — abriendo modal Confirmar Datos (sin enviar).',
+        'Bot: reCAPTCHA resuelto; se ejecutará clic en ENVIAR para abrir modal Confirmar Datos.',
       );
 
       const enviarBtn = await page.$('#enviar');
@@ -1666,29 +1796,73 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       await delay(500);
       await enviarBtn.click();
       enviarClicked = true;
-      await this.persistAutomationDetail(rowId, 'Bot: clic en ENVIAR ejecutado; esperando modal Confirmar Datos (15s).');
+
+      await this.persistAutomationDetail(rowId, 'Bot: ENVIAR clicado.');
+      const confirmarDatosModalWaitMs =
+        Number(this.configService.get<string>('CONFIRMAR_DATOS_MODAL_WAIT_MS') ?? '15000') || 15000;
       await delay(300);
       awaitingConfirmarDatosModal = true;
 
-      await page.waitForFunction(
-        () => {
-          const boxes = Array.from(
-            document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
-          );
-          return boxes.some((b) =>
-            /confirmar\s+datos/i.test((b.innerText || b.textContent || '').trim()),
-          );
-        },
-        // Después de resolver reCAPTCHA, intentamos ENVIAR y esperamos el modal.
-        { timeout: 15000, polling: 100 },
-      );
+      const waitForConfirmarDatosModal = async (timeout: number): Promise<void> => {
+        await page.waitForFunction(
+          () => {
+            const normalize = (v: string) =>
+              v
+                .normalize('NFD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .toUpperCase();
+
+            const openModals = Array.from(
+              document.querySelectorAll<HTMLElement>('.jconfirm.jconfirm-open'),
+            );
+
+            return openModals.some((modal) => {
+              const titleNodes = Array.from(
+                modal.querySelectorAll<HTMLElement>(
+                  '.jconfirm-title, .jconfirm-box .jconfirm-title, .jconfirm-title-c .jconfirm-title',
+                ),
+              );
+              const titles = titleNodes.map((n) => normalize(n.innerText || n.textContent || ''));
+              const isConfirmar = titles.some((t) => t.includes('CONFIRMAR DATOS'));
+              if (!isConfirmar) return false;
+
+              const buttons = Array.from(
+                modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn, .jconfirm-buttons button'),
+              );
+              const buttonLabels = buttons.map((btn) => normalize(btn.innerText || btn.textContent || ''));
+              return buttonLabels.includes('SI') && buttonLabels.includes('NO');
+            });
+          },
+          { timeout, polling: 100 },
+        );
+      };
+
+      await waitForConfirmarDatosModal(confirmarDatosModalWaitMs);
       confirmarDatosModalOpened = true;
       awaitingConfirmarDatosModal = false;
 
       await this.persistAutomationDetail(
         rowId,
-        // 'Bot: modal Confirmar Datos abierto — clic en "SI" para registrar la demanda.',
-        'Bot: modal Confirmar Datos abierto — clic en "NO" (simulación).',
+        'Bot: modal Confirmar Datos encontrado en DOM.',
+      );
+
+      const botonesModal = await page.evaluate(() => {
+        const modal = document.querySelector<HTMLElement>('.jconfirm.jconfirm-open');
+        const buttons = modal
+          ? Array.from(modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'))
+          : [];
+        const normalize = (txt: string) => txt.trim().toUpperCase();
+        const labels = buttons.map((b) => normalize(b.innerText || b.textContent || ''));
+        return {
+          hasSi: labels.some((l) => l === 'SI'),
+          hasNo: labels.some((l) => l === 'NO'),
+        };
+      });
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: botones modal detectados (SI=${botonesModal.hasSi ? 'sí' : 'no'}, NO=${botonesModal.hasNo ? 'sí' : 'no'}).`,
       );
 
       /**
@@ -1697,9 +1871,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
        *   - Se considera que la demanda quedó registrada de forma simulada.
        */
       const clicNo = await page.evaluate(() => {
-        const buttons = Array.from(
-          document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
-        );
+        const modal = document.querySelector<HTMLElement>('.jconfirm.jconfirm-open');
+        const buttons = modal
+          ? Array.from(modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'))
+          : [];
         const noBtn = buttons.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
         if (!noBtn) return false;
         noBtn.click();
@@ -1707,6 +1882,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       });
 
       if (!clicNo) {
+        await this.persistAutomationDetail(
+          rowId,
+          'Bot: modal Confirmar Datos abierto, pero no se encontró el botón NO para simulación.',
+        );
         throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_MODAL_CONFIRMAR_DATOS');
       }
 
@@ -1729,7 +1908,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         // ignore (algunos modales tardan en cerrarse)
       }
 
-      await this.persistAutomationDetail(rowId, 'Bot: simulación finalizada — clic en "NO" realizado.');
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: clic en NO ejecutado (simulación).',
+      );
 
       confirmarDatosNoClicked = true;
       confirmarDatosAction = 'NO';
@@ -1825,10 +2007,51 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       // - el PDF se adjuntó
       // - se intentó ENVIAR después del reCAPTCHA
       // Entonces no es un error real de PDF, sino de portal/modal lento.
-      if (awaitingConfirmarDatosModal && lower.includes('waiting failed')) {
+      if (awaitingConfirmarDatosModal) {
+        const confirmarDatosModalWaitMs =
+        // Esperamos 15 segundos por defecto
+          Number(this.configService.get<string>('CONFIRMAR_DATOS_MODAL_WAIT_MS') ?? '15000') || 15000;
+        const confirmarDatosModalWaitSeconds = Math.round(confirmarDatosModalWaitMs / 1000);
+        try {
+          confirmarDatosModalDebug = await page.evaluate(() => {
+            const titles = Array.from(
+              document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
+            ).map((b) => (b.innerText || b.textContent || '').trim());
+            const buttonLabels = Array.from(
+              document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn, .jconfirm-buttons button'),
+            ).map((btn) => (btn.innerText || btn.textContent || '').trim());
+            const visibleBoxes = Array.from(
+              document.querySelectorAll<HTMLElement>('.jconfirm-holder .jconfirm-box'),
+            ).filter((box) => {
+              const style = window.getComputedStyle(box);
+              const rect = box.getBoundingClientRect();
+              return (
+                style.display !== 'none' &&
+                style.visibility !== 'hidden' &&
+                rect.width > 0 &&
+                rect.height > 0
+              );
+            }).length;
+            return {
+              titles: titles.slice(0, 5),
+              buttonLabels: buttonLabels.slice(0, 10),
+              visibleBoxes,
+            };
+          });
+        } catch {
+          confirmarDatosModalDebug = undefined;
+        }
+        const debugSuffix = confirmarDatosModalDebug
+          ? ` | debug_modal: visibleBoxes=${confirmarDatosModalDebug.visibleBoxes}, titles=[${confirmarDatosModalDebug.titles.join(
+              ' | ',
+            )}], buttons=[${confirmarDatosModalDebug.buttonLabels.join(' | ')}]`
+          : '';
         await this.persistAutomationDetail(
           rowId,
-          `Bot: reCAPTCHA resuelto y ENVIAR clicado; pero el modal "Confirmar Datos" no apareció en 15s (${msg.slice(0, 180)}).`,
+          `Bot: modal Confirmar Datos no detectado tras ENVIAR (${confirmarDatosModalWaitSeconds}s).${debugSuffix}`.slice(
+            0,
+            470,
+          ),
         );
         return {
           reachedArchivosAdjuntos: true,
@@ -1854,7 +2077,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         type: 'BROWSER',
         status: 'WARN',
         message: 'Fallo generación/descarga/adjunto PDF demanda',
-        meta: { rowId, error: msg },
+        meta: { rowId, error: msg, stack: e instanceof Error ? e.stack : undefined },
       });
       await this.persistAutomationDetail(
         rowId,

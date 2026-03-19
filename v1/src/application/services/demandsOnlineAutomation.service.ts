@@ -58,6 +58,10 @@ export class DemandsOnlineAutomationService {
     | {
         document_type_name: string;
         identification: string;
+        first_name: string;
+        second_name: string;
+        first_last_name: string;
+        second_last_name: string;
         completed_name: string;
         address: string;
         phone: string;
@@ -75,6 +79,10 @@ export class DemandsOnlineAutomationService {
     const sql = `
       SELECT
         c.identification AS identification,
+        c.first_name AS first_name,
+        c.second_name AS second_name,
+        c.first_last_name AS first_last_name,
+        c.second_last_name AS second_last_name,
         c.completed_name AS completed_name,
         'Cédula de Ciudadanía' AS document_type_name,
         lca.client_address AS address,
@@ -117,16 +125,21 @@ export class DemandsOnlineAutomationService {
 
     const row = rows[0] as Record<string, unknown>;
     const identification = String(row.identification ?? '').trim();
+    const first_name = String(row.first_name ?? '').trim();
+    const second_name = String(row.second_name ?? '').trim();
+    const first_last_name = String(row.first_last_name ?? '').trim();
+    const second_last_name = String(row.second_last_name ?? '').trim();
     const completed_name = String(row.completed_name ?? '').trim();
 
-    if (!identification || !completed_name) {
+    // Para el portal del DEMANDADO necesitamos al menos el primer nombre y el primer apellido.
+    if (!identification || !first_name || !first_last_name) {
       this.appLogger.structured({
         level: 'debug',
         context: DemandsOnlineAutomationService.name,
         type: 'AUTOMATION_JOB',
         status: 'WARN',
         message:
-          'Datos de demandado incompletos (identification o completed_name vacío); se omite la fase de Demandado.',
+          'Datos de demandado incompletos (identification o first_name/first_last_name vacío); se omite la fase de Demandado.',
         meta: {
           management_demands_online_id: demanda.id,
           baseName,
@@ -140,6 +153,10 @@ export class DemandsOnlineAutomationService {
     return {
       document_type_name: String(row.document_type_name ?? '').trim(),
       identification,
+      first_name,
+      second_name,
+      first_last_name,
+      second_last_name,
       completed_name,
       address: String(row.address ?? ''),
       phone: String(row.phone ?? ''),
@@ -519,11 +536,15 @@ export class DemandsOnlineAutomationService {
             confirmarDatosModalOpened !== true
           ) {
             detailFinal =
-              'Bot: reCAPTCHA resuelto y ENVIAR ejecutado, pero el modal "Confirmar Datos" no se abrió a tiempo. Revise el portal y continúe manualmente desde el modal.';
+              'Bot: ENVIAR ejecutado, pero no se detectó el modal Confirmar Datos. Revise el portal y continúe manualmente.';
             managementStatusFinal = 'Novedad';
           } else if (failureStage === 'recaptcha') {
             detailFinal =
               'Bot: DEMANDA adjuntada con éxito, pero no se pudo resolver el reCAPTCHA automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'modal_not_opened') {
+            detailFinal =
+              'Bot: ENVIAR ejecutado, pero no se detectó el modal Confirmar Datos. Revise el portal y continúe manualmente.';
             managementStatusFinal = 'Novedad';
           } else if (confirmarDatosNoClicked === true) {
             // Normalmente esto debería ir por la rama demandaRegistrada === true,
@@ -533,12 +554,20 @@ export class DemandsOnlineAutomationService {
             managementStatusFinal = 'Novedad';
           } else {
             detailFinal =
-              'Bot: DEMANDA adjuntada con éxito, pero el flujo final (reCAPTCHA / ENVIAR / modal) no se completó automáticamente. Revise el portal y continúe manualmente.';
+              'Bot: No se completo la automatización de la demanda. Revise el portal y continúe manualmente.';
             managementStatusFinal = 'Novedad';
           }
         } else {
-          detailFinal =
-            'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.';
+          if (failureStage === 'pdf_generate') {
+            detailFinal =
+              'Bot: error al GENERAR PDF DEMANDA (servicio GENERATE_PDF_DEMAND_SERVICE); revise servicios y adjunte el PDF manualmente.';
+          } else if (failureStage === 'pdf_download') {
+            detailFinal =
+              'Bot: error al DESCARGAR PDF DEMANDA (servicio DOWNLOAD_PDF_DEMAND_SERVICE); revise servicios y adjunte el PDF manualmente.';
+          } else {
+            detailFinal =
+              'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.';
+          }
           managementStatusFinal = 'Novedad';
         }
 
@@ -554,9 +583,7 @@ export class DemandsOnlineAutomationService {
           context: DemandsOnlineAutomationService.name,
           type: 'AUTOMATION_JOB',
           status: 'OK',
-          message: reachedArchivosAdjuntos
-            ? 'Demanda automatizada hasta archivos adjuntos (tipo DEMANDA); revisar adjunto PDF si hubo error de servicios.'
-            : 'Demanda automatizada hasta demandante en grilla (sin flujo completo a adjuntos).',
+          message: detailFinal,
           meta: {
             management_demands_online_id: demanda.id,
             management_status: managementStatusFinal,
