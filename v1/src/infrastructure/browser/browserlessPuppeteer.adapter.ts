@@ -1572,6 +1572,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       `${rowId}-${demanda.portfolio_type_id}-${demanda.client_id}`,
     );
     let pdfPath: string | null = null;
+    // Banderas para construir mensajes finales coherentes (DB detail final vive en DemandsOnlineAutomationService).
+    let captchaResolved = false;
+    let enviarClicked = false;
+    let confirmarDatosModalOpened = false;
+    let confirmarDatosNoClicked = false;
+    let confirmarDatosSiClicked = false;
+    let confirmarDatosAction: 'SI' | 'NO' | undefined = undefined;
+    let pdfAttached = false;
+    // Indica que el siguiente waitForFunction esperado es "modal Confirmar Datos".
+    let awaitingConfirmarDatosModal = false;
     try {
       await this.persistAutomationDetail(
         rowId,
@@ -1635,9 +1645,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       });
       await delay(500);
       await addFileBtn.click();
+      pdfAttached = true;
       await delay(3000);
 
       await this.solveRecaptcha(page, rowId);
+      captchaResolved = true;
 
       await this.persistAutomationDetail(
         rowId,
@@ -1653,7 +1665,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       });
       await delay(500);
       await enviarBtn.click();
-      await delay(3000);
+      enviarClicked = true;
+      await this.persistAutomationDetail(rowId, 'Bot: clic en ENVIAR ejecutado; esperando modal Confirmar Datos (15s).');
+      await delay(300);
+      awaitingConfirmarDatosModal = true;
 
       await page.waitForFunction(
         () => {
@@ -1664,12 +1679,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
             /confirmar\s+datos/i.test((b.innerText || b.textContent || '').trim()),
           );
         },
-        { timeout: 15000 },
+        // Después de resolver reCAPTCHA, intentamos ENVIAR y esperamos el modal.
+        { timeout: 15000, polling: 100 },
       );
+      confirmarDatosModalOpened = true;
+      awaitingConfirmarDatosModal = false;
 
       await this.persistAutomationDetail(
         rowId,
-        'Bot: modal Confirmar Datos abierto — clic en "SI" para registrar la demanda.',
+        // 'Bot: modal Confirmar Datos abierto — clic en "SI" para registrar la demanda.',
+        'Bot: modal Confirmar Datos abierto — clic en "NO" (simulación).',
       );
 
       /**
@@ -1677,8 +1696,54 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
        *   - No se hace clic en "Si" en el modal.
        *   - Se considera que la demanda quedó registrada de forma simulada.
        */
-      await delay(3000);
-      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true, demandaRegistrada: true };
+      const clicNo = await page.evaluate(() => {
+        const buttons = Array.from(
+          document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
+        );
+        const noBtn = buttons.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+        if (!noBtn) return false;
+        noBtn.click();
+        return true;
+      });
+
+      if (!clicNo) {
+        throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_MODAL_CONFIRMAR_DATOS');
+      }
+
+      await delay(500);
+
+      // Intentamos esperar que el modal se cierre; si no, igual consideramos la simulación hecha.
+      try {
+        await page.waitForFunction(
+          () => {
+            const boxes = Array.from(
+              document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
+            );
+            return !boxes.some((b) =>
+              /confirmar\s+datos/i.test((b.innerText || b.textContent || '').trim()),
+            );
+          },
+          { timeout: 3000, polling: 100 },
+        );
+      } catch {
+        // ignore (algunos modales tardan en cerrarse)
+      }
+
+      await this.persistAutomationDetail(rowId, 'Bot: simulación finalizada — clic en "NO" realizado.');
+
+      confirmarDatosNoClicked = true;
+      confirmarDatosAction = 'NO';
+      return {
+        reachedArchivosAdjuntos: true,
+        pdfDemandaAdjuntado: true,
+        demandaRegistrada: true,
+        captchaResolved,
+        enviarClicked,
+        confirmarDatosModalOpened,
+        confirmarDatosNoClicked,
+        confirmarDatosSiClicked,
+        confirmarDatosAction,
+      };
 
       /**
        * MODO 2 (futuro, producción) — ENVÍO REAL:
@@ -1704,13 +1769,23 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
        * //   throw new Error('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_CONFIRMAR_DATOS');
        * // }
        * //
+       * // // CLICK REAL EN "SI"
        * // await (siEl as unknown as HTMLElement).click();
+       * // confirmarDatosSiClicked = true;
+       * // confirmarDatosAction = 'SI';
+       * // confirmarDatosNoClicked = false;
        * // await delay(1000);
        * //
        * // return {
        * //   reachedArchivosAdjuntos: true,
        * //   pdfDemandaAdjuntado: true,
        * //   demandaRegistrada: true,
+       * //   captchaResolved,
+       * //   enviarClicked,
+       * //   confirmarDatosModalOpened,
+       * //   confirmarDatosNoClicked,
+       * //   confirmarDatosSiClicked,
+       * //   confirmarDatosAction,
        * // };
        */
     } catch (e) {
@@ -1732,7 +1807,41 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           message: 'Fallo al resolver reCAPTCHA en demandaenlinea',
           meta: { rowId, error: msg },
         });
-        return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: true, demandaRegistrada: false };
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved: false,
+          enviarClicked: false,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'recaptcha',
+        };
+      }
+
+      // Si el modal no aparece en el tiempo esperado, ya sabemos que:
+      // - el PDF se adjuntó
+      // - se intentó ENVIAR después del reCAPTCHA
+      // Entonces no es un error real de PDF, sino de portal/modal lento.
+      if (awaitingConfirmarDatosModal && lower.includes('waiting failed')) {
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: reCAPTCHA resuelto y ENVIAR clicado; pero el modal "Confirmar Datos" no apareció en 15s (${msg.slice(0, 180)}).`,
+        );
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'modal_not_opened',
+        };
       }
 
       await this.persistAutomationDetail(
@@ -1751,7 +1860,18 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         rowId,
         'Bot: archivos adjuntos — tipo DEMANDA OK; adjunte PDF manualmente o revise servicios GENERATE/DOWNLOAD.',
       );
-      return { reachedArchivosAdjuntos: true, pdfDemandaAdjuntado: false, demandaRegistrada: false };
+      return {
+        reachedArchivosAdjuntos: true,
+        pdfDemandaAdjuntado: pdfAttached,
+        demandaRegistrada: false,
+        captchaResolved,
+        enviarClicked,
+        confirmarDatosModalOpened: false,
+        confirmarDatosNoClicked: false,
+        confirmarDatosSiClicked: false,
+        confirmarDatosAction: undefined,
+        failureStage: pdfAttached ? 'unknown' : 'pdf_attach',
+      };
     } finally {
       if (fs.existsSync(tmpDir)) {
         try {
@@ -1766,7 +1886,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
   private async solveRecaptcha(page: Page, rowId: number): Promise<void> {
     await this.persistAutomationDetail(
       rowId,
-      'Bot: reCAPTCHA — resolviendo automáticamente con Browserless.',
+      'Bot: reCAPTCHA — resolviendo automáticamente con Browserless (auto + solveCaptcha).',
     );
 
     await page.evaluate(() => {
@@ -1787,27 +1907,105 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       error?: string;
     };
 
-    const waitForCaptchaResolved = (timeoutMs = 180000): Promise<CaptchaAutoSolvedPayload | null> =>
-      new Promise((resolve) => {
-        const timeout = setTimeout(() => {
-          resolve(null);
-        }, timeoutMs);
+    // Tu plan Prototyping permite hasta 15 min por sesión.
+    // Ajustamos los timeouts para no cortar el solve antes de tiempo.
+    const captchaWaitMs = 14 * 60 * 1000; // margen frente al max de la sesión
 
-        (cdp as any).on('Browserless.captchaAutoSolved', (params: CaptchaAutoSolvedPayload) => {
-          clearTimeout(timeout);
-          resolve(params);
-        });
+    // Espera por evidencia real de "resuelto" en el DOM (token).
+    const tokenPromise = page
+      .waitForFunction(
+        () => {
+          const textarea = document.querySelector<HTMLTextAreaElement>('#g-recaptcha-response');
+          return !!textarea && !!textarea.value && textarea.value.trim().length > 0;
+        },
+        { timeout: captchaWaitMs },
+      )
+      .then(
+        () => true,
+        () => false,
+      );
 
-        (cdp as any).on('Browserless.captchaFound', () => {
-          // solo informativo
-        });
+    let autoSolvedTimeout: NodeJS.Timeout | null = null;
+    let autoCleanup: (() => void) | undefined;
+
+    const autoSolvedPromise: Promise<CaptchaAutoSolvedPayload | null> = new Promise((resolve) => {
+      autoSolvedTimeout = setTimeout(() => resolve(null), captchaWaitMs);
+
+      const onAutoSolved = (params: CaptchaAutoSolvedPayload) => {
+        autoSolvedTimeout && clearTimeout(autoSolvedTimeout);
+        if (autoCleanup) autoCleanup();
+        resolve(params);
+      };
+
+      const onCaptchaFound = (params: CaptchaAutoSolvedPayload) => {
+        // Informativo (evitamos persistir mucho para no saturar)
+        // eslint-disable-next-line no-console
+        if (params?.found !== undefined) {
+          this.appLogger.structured({
+            level: 'debug',
+            context: BrowserlessPuppeteerAdapter.name,
+            type: 'BROWSER',
+            status: 'OK',
+            message: 'captchaFound',
+            meta: { rowId, found: params.found },
+          });
+        }
+      };
+
+      (cdp as any).on('Browserless.captchaAutoSolved', onAutoSolved);
+      (cdp as any).on('Browserless.captchaFound', onCaptchaFound);
+
+      autoCleanup = () => {
+        if (autoSolvedTimeout) clearTimeout(autoSolvedTimeout);
+        (cdp as any).off?.('Browserless.captchaAutoSolved', onAutoSolved);
+        (cdp as any).off?.('Browserless.captchaFound', onCaptchaFound);
+      };
+    });
+
+    // Disparamos el solve explícitamente. Aunque usemos solveCaptchas=true,
+    // esto reduce el riesgo de que perdamos el evento por llegar tarde a los listeners.
+    try {
+      await (cdp as any).send('Browserless.solveCaptcha');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.appLogger.structured({
+        level: 'warn',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSER',
+        status: 'WARN',
+        message: 'Browserless.solveCaptcha falló (fallback a token/eventos)',
+        meta: { rowId, error: msg.slice(0, 200) },
       });
+    }
 
-    const result = await waitForCaptchaResolved();
+    const race = await Promise.race([
+      tokenPromise.then((ok) => ({ kind: 'token' as const, ok })),
+      autoSolvedPromise.then((res) => ({ kind: 'auto' as const, res })),
+    ]);
+
+    // Si el token ya está, consideramos éxito aunque no tengamos el evento.
+    if (race.kind === 'token') {
+      if (!race.ok) {
+        throw new Error(
+          `RECAPTCHA_NO_RESUELTO: el token (#g-recaptcha-response) no apareció en el tiempo esperado (${Math.round(
+            captchaWaitMs / 1000,
+          )}s).`,
+        );
+      }
+      await this.persistAutomationDetail(rowId, 'Bot: reCAPTCHA — token generado; continuando flujo.');
+      if (autoCleanup) autoCleanup();
+      return;
+    }
+
+    // Caso: llegó el evento.
+    const result = race.res;
+    if (autoCleanup) autoCleanup();
 
     if (!result) {
       throw new Error(
-        'RECAPTCHA_NO_RESUELTO: Browserless no completó el desafío en el tiempo esperado (180 segundos).',
+        `RECAPTCHA_NO_RESUELTO: Browserless no completó el desafío en el tiempo esperado (${Math.round(
+          captchaWaitMs / 1000,
+        )}s).`,
       );
     }
 
@@ -1820,30 +2018,45 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     }
 
     if (!result.solved) {
-      throw new Error(
-        `RECAPTCHA_NO_RESUELTO: Browserless.captchaAutoSolved devolvió solved=false (found=${String(
-          result.found,
-        )}).`,
-      );
+      // Aun así, verificamos token por si el evento vino "optimista".
+      const tokenOk = await page
+        .waitForFunction(
+          () => {
+            const textarea = document.querySelector<HTMLTextAreaElement>('#g-recaptcha-response');
+            return !!textarea && !!textarea.value && textarea.value.trim().length > 0;
+          },
+          { timeout: 15000 },
+        )
+        .then(
+          () => true,
+          () => false,
+        );
+
+      if (!tokenOk) {
+        throw new Error(
+          `RECAPTCHA_NO_RESUELTO: Browserless.captchaAutoSolved devolvió solved=false (found=${String(
+            result.found,
+          )}).`,
+        );
+      }
     }
 
-    const recaptchaSolved = await page
+    // Token final (rápido) para garantizar que el portal acepte la solución.
+    const tokenOk = await page
       .waitForFunction(
         () => {
           const textarea = document.querySelector<HTMLTextAreaElement>('#g-recaptcha-response');
           return !!textarea && !!textarea.value && textarea.value.trim().length > 0;
         },
-        { timeout: 120000 },
+        { timeout: 15000 },
       )
       .then(
         () => true,
         () => false,
       );
 
-    if (!recaptchaSolved) {
-      throw new Error(
-        'RECAPTCHA_NO_RESUELTO: el reCAPTCHA no se completó en el tiempo esperado (120 segundos).',
-      );
+    if (!tokenOk) {
+      throw new Error('RECAPTCHA_NO_RESUELTO: Browserless no generó el token en el DOM.');
     }
   }
 }

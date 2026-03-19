@@ -10,7 +10,13 @@ interface LogPayload {
   level: LogLevel;
   context?: string;
   message: string;
-  status?: 'OK' | 'WARN' | 'ERROR';
+  /**
+   * Status de alto nivel. Nuevo formato preferido:
+   *   - 'Success' | 'Info' | 'Warning' | 'Error'
+   * Compatibilidad legacy:
+   *   - 'OK' | 'WARN' | 'ERROR'
+   */
+  status?: 'Success' | 'Info' | 'Warning' | 'Error' | 'OK' | 'WARN' | 'ERROR';
   type?: string;
   meta?: Record<string, unknown>;
   stack?: string;
@@ -89,7 +95,7 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       level: 'log',
       context,
       message,
-      status: 'OK',
+      status: 'Success',
     });
   }
 
@@ -98,7 +104,7 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       level: 'error',
       context,
       message,
-      status: 'ERROR',
+      status: 'Error',
       stack: trace,
     });
   }
@@ -108,7 +114,7 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       level: 'warn',
       context,
       message,
-      status: 'WARN',
+      status: 'Warning',
     });
   }
 
@@ -117,7 +123,7 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       level: 'debug',
       context,
       message,
-      status: 'OK',
+      status: 'Info',
     });
   }
 
@@ -126,7 +132,7 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       level: 'verbose',
       context,
       message,
-      status: 'OK',
+      status: 'Info',
     });
   }
 
@@ -139,10 +145,13 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
   private write(payload: LogPayload) {
     if (!this.logLevels.includes(payload.level)) return;
 
+    const normalized = this.normalizeStatusForFile(payload.status);
+
     const entry = {
       timestamp: new Date().toISOString(),
       level: payload.level,
-      status: payload.status,
+      status: normalized.status,
+      icon: normalized.icon,
       type: payload.type,
       context: payload.context,
       message: payload.message,
@@ -167,5 +176,28 @@ export class AppLogger implements LoggerService, OnModuleInit, OnModuleDestroy {
       }
     });
   }
+
+  /**
+   * Normaliza status legacy (OK/WARN/ERROR) y devuelve status + icon
+   * exactamente como lo requiere el frontend: Success/Info/Warning/Error + ✅❌⚠ℹ.
+   */
+  private normalizeStatusForFile(
+    status: LogPayload['status'],
+  ): { status: 'Success' | 'Info' | 'Warning' | 'Error'; icon: '✅' | 'ℹ️' | '⚠️' | '❌' } {
+    switch (status) {
+      case 'OK':
+      case 'Success':
+        return { status: 'Success', icon: '✅' };
+      case 'WARN':
+      case 'Warning':
+        return { status: 'Warning', icon: '⚠️' };
+      case 'ERROR':
+      case 'Error':
+        return { status: 'Error', icon: '❌' };
+      default:
+        return { status: 'Info', icon: 'ℹ️' };
+    }
+  }
+
 }
 

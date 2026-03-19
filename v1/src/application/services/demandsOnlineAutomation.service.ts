@@ -423,8 +423,18 @@ export class DemandsOnlineAutomationService {
         ? amountType.class_process
         : [amountType.class_process as unknown as string];
 
-      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado, demandaRegistrada } =
-        await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
+      const {
+        reachedArchivosAdjuntos,
+        pdfDemandaAdjuntado,
+        demandaRegistrada,
+        captchaResolved,
+        enviarClicked,
+        confirmarDatosModalOpened,
+        confirmarDatosNoClicked,
+        confirmarDatosSiClicked,
+        confirmarDatosAction,
+        failureStage,
+      } = await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
           demanda,
           departamento: cityConfig.name_departament,
           ciudad: cityConfig.name_city,
@@ -441,11 +451,21 @@ export class DemandsOnlineAutomationService {
           : demanda;
 
       if (demandaRegistrada === true) {
+        let detailFinal: string;
+        if (confirmarDatosAction === 'NO' && confirmarDatosNoClicked === true) {
+          detailFinal =
+            'Demanda en linea registrada con exito y sincronizada (modal Confirmar Datos: NO simulado).';
+        } else if (confirmarDatosAction === 'SI' && confirmarDatosSiClicked === true) {
+          detailFinal =
+            'Demanda en linea registrada con exito y sincronizada (modal Confirmar Datos: SI).';
+        } else {
+          detailFinal = 'Demanda en linea registrada con exito y sincronizada con lawsuits externa.';
+        }
         const updatedDemanda = await this.managementDemandsOnlineRepository.update({
           ...refreshedDemanda,
           lawsuit_status: 'Presentada por aplicativo',
           management_status: 'Registrada',
-          detail: 'Demanda en linea registrada con exito y sincronizada con lawsuits externa.',
+          detail: detailFinal,
           updated_at: new Date(),
         });
 
@@ -474,8 +494,7 @@ export class DemandsOnlineAutomationService {
           context: DemandsOnlineAutomationService.name,
           type: 'AUTOMATION_JOB',
           status: 'OK',
-          message:
-            'Demanda en linea registrada con exito y sincronizada con lawsuits externa.',
+          message: detailFinal,
           meta: {
             management_demands_online_id: demanda.id,
             management_status: 'Registrada',
@@ -494,9 +513,29 @@ export class DemandsOnlineAutomationService {
             'Bot: demandante en grilla; complete demandado, apoderado y adjuntos manualmente.';
           managementStatusFinal = 'En proceso';
         } else if (pdfDemandaAdjuntado === true) {
-          detailFinal =
-            'Bot: DEMANDA adjuntada con éxito; reCAPTCHA o envío final no se completó automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
-          managementStatusFinal = 'Novedad';
+          if (
+            captchaResolved === true &&
+            enviarClicked === true &&
+            confirmarDatosModalOpened !== true
+          ) {
+            detailFinal =
+              'Bot: reCAPTCHA resuelto y ENVIAR ejecutado, pero el modal "Confirmar Datos" no se abrió a tiempo. Revise el portal y continúe manualmente desde el modal.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'recaptcha') {
+            detailFinal =
+              'Bot: DEMANDA adjuntada con éxito, pero no se pudo resolver el reCAPTCHA automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
+            managementStatusFinal = 'Novedad';
+          } else if (confirmarDatosNoClicked === true) {
+            // Normalmente esto debería ir por la rama demandaRegistrada === true,
+            // pero lo dejamos por seguridad.
+            detailFinal =
+              'Bot: reCAPTCHA resuelto, modal "Confirmar Datos" abierto y simulación finalizada con "NO".';
+            managementStatusFinal = 'Novedad';
+          } else {
+            detailFinal =
+              'Bot: DEMANDA adjuntada con éxito, pero el flujo final (reCAPTCHA / ENVIAR / modal) no se completó automáticamente. Revise el portal y continúe manualmente.';
+            managementStatusFinal = 'Novedad';
+          }
         } else {
           detailFinal =
             'Bot: error al generar o adjuntar PDF DEMANDA; revise servicios y adjunte el PDF manualmente.';

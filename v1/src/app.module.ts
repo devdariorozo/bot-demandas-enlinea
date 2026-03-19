@@ -44,6 +44,7 @@ import { DemandsPendingSyncModule } from './interfaces/modules/demandsPendingSyn
 import { BotControlModule } from './interfaces/modules/botControl.module';
 import { LoggerModule } from './infrastructure/logging/logger.module';
 import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlineAutomation.module';
+import { LogsModule } from './interfaces/modules/logs.module';
 
 @Module({
   imports: [
@@ -111,6 +112,7 @@ import { DemandsOnlineAutomationModule } from './interfaces/modules/demandsOnlin
     BotControlModule,
     DemandsPendingSyncModule,
     DemandsOnlineAutomationModule,
+    LogsModule,
   ],
 })
 export class AppModule {}

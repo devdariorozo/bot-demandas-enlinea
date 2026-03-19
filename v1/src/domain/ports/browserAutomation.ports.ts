@@ -56,6 +56,21 @@ export interface ProcesarLugarEnvioResult {
    * se considera exitoso (puede ser real o simulado según el adapter).
    */
   demandaRegistrada?: boolean;
+
+  /** true si el reCAPTCHA se resolvió exitosamente y el token se generó en el DOM. */
+  captchaResolved?: boolean;
+  /** true si se dio click en el botón ENVIAR (#enviar). */
+  enviarClicked?: boolean;
+  /** true si el modal "Confirmar Datos" se abrió. */
+  confirmarDatosModalOpened?: boolean;
+  /** true si se presionó el botón "NO" en el modal (simulación final). */
+  confirmarDatosNoClicked?: boolean;
+  /** true si se presionó el botón "SI" en el modal (producción real). */
+  confirmarDatosSiClicked?: boolean;
+  /** Acción concreta tomada en el modal de confirmación: 'SI' o 'NO'. */
+  confirmarDatosAction?: 'SI' | 'NO';
+  /** Código corto de la falla para armar mensajes finales coherentes. */
+  failureStage?: 'recaptcha' | 'modal_not_opened' | 'pdf_attach' | 'unknown';
 }
 
 export interface BrowserAutomationPort {
