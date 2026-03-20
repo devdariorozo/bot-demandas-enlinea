@@ -221,6 +221,19 @@ v1/
 - **Registro y trazabilidad** de cada intento de radicación (logs estructurados, auditoría).
 - **Ejecución programada** (jobs) y ejecución manual vía API; documentación de la API con **Swagger**.
 
+#### Depuración HTML (ENVIAR / jConfirm)
+
+Tras el clic en **ENVIAR** y durante la espera del overlay **«Confirmar Datos»**, el adaptador puede guardar el HTML completo de la página para inspeccionar selectores en el IDE:
+
+| Ubicación | Descripción |
+|-----------|-------------|
+| **`v1/logs/html-debug/`** | Archivo principal (misma raíz que los `.log` si ejecutas el bot con `cwd` = `v1/`). |
+| **`/tmp/`** | Copia con el mismo nombre (compatibilidad con despliegues o inspección rápida). |
+
+En **`management_demands_online.detail`** suele quedar una línea tipo: `Bot: snapshot HTML (paso-…) → logs/html-debug/bot-demanda-enlinea-id{N}-….html`. Pasos habituales: `01-tras-delay-post-ENVIAR`, `03-FALLO-timeout-sin-Confirmar-Datos`. En **Browserless** a veces aparece primero un jConfirm solo con **CONTINUAR**; el bot puede pulsarlo automáticamente hasta que salga **Confirmar Datos** + **Sí/No** (ver variables `CONFIRMAR_DATOS_*` en `.env.example`).
+
+**Importante:** el portal también usa jConfirm con un solo **Continuar** para **errores de validación** (`ConfirmaDatos`: icono spinner, título vacío, mensaje tipo «adjuntar un documento…»). Eso **no** es el resumen «Confirmar Datos». El bot lo distingue y **no** lo confunde con el paso intermedio; si ENVIAR falla por validación, ver `failureStage: portal_enviar_validation_error` y el HTML en `03-FALLO-validacion-portal-pre-confirmar-datos`.
+
 ### Lógica de días hábiles y horarios
 
 - **Horarios de atención por cartera (`attention_schedule`)**  

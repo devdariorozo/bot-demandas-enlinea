@@ -80,7 +80,11 @@ export interface ProcesarLugarEnvioResult {
   /** Código corto de la falla para armar mensajes finales coherentes. */
   failureStage?:
     | 'recaptcha'
-    | 'modal_not_opened'
+    | 'jconfirm_confirmar_datos_timeout'
+    /** El portal mostró jConfirm de error (ConfirmaDatos) al enviar: adjunto no registrado, validación, etc. */
+    | 'portal_enviar_validation_error'
+    /** Tras «Agregar Archivo» no apareció fila en #tblFiles (PDF no quedó en grilla del portal). */
+    | 'portal_adjunto_no_en_grilla'
     | 'pdf_generate'
     | 'pdf_download'
     | 'pdf_attach'

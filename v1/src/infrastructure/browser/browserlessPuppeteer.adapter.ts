@@ -36,6 +36,63 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     await this.managementDemandsOnlineRepository.updateAutomationDetail(id, detail);
   }
 
+  /**
+   * Guarda el HTML completo de la página bajo `logs/html-debug/` del proyecto (misma carpeta que los .log).
+   * También copia en /tmp por compatibilidad. Opcionalmente escribe `detail` con la ruta relativa.
+   */
+  private async writeHtmlDebugSnapshot(
+    page: Page,
+    rowId: number,
+    step: string,
+    options?: { persistDetail?: boolean },
+  ): Promise<string> {
+    const html = await page.evaluate(() => document.documentElement.outerHTML);
+    const safe = step.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
+    const baseName = `bot-demanda-enlinea-id${rowId}-${safe}-${Date.now()}.html`;
+
+    const projectDir = path.join(process.cwd(), 'logs', 'html-debug');
+    if (!fs.existsSync(projectDir)) {
+      fs.mkdirSync(projectDir, { recursive: true });
+    }
+    const fileProject = path.join(projectDir, baseName);
+    fs.writeFileSync(fileProject, html, 'utf8');
+
+    const fileTmp = path.join(os.tmpdir(), baseName);
+    try {
+      fs.writeFileSync(fileTmp, html, 'utf8');
+    } catch {
+      /* ignore */
+    }
+
+    const relative = path.relative(process.cwd(), fileProject).replace(/\\/g, '/');
+    const line = `[HTML debug] id=${rowId} paso=${step} → ${fileProject} (${html.length} bytes) | también: ${relative}`;
+    // eslint-disable-next-line no-console
+    console.log(line);
+    this.appLogger.structured({
+      level: 'debug',
+      context: BrowserlessPuppeteerAdapter.name,
+      type: 'BROWSER',
+      status: 'OK',
+      message: 'Snapshot HTML (ENVIAR / jconfirm) en proyecto y /tmp',
+      meta: {
+        rowId,
+        step,
+        fileProject,
+        fileTmp,
+        relativeFromCwd: relative,
+        bytes: html.length,
+      },
+    });
+
+    if (options?.persistDetail !== false) {
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: snapshot HTML (${step}) → ${relative} (${html.length} bytes). Abrir en el IDE desde la raíz del proyecto v1/.`,
+      );
+    }
+    return fileProject;
+  }
+
   /** Solo dígitos (documento / teléfono apoderado). */
   private digitsOnly(value: string | undefined | null): string {
     return (value ?? '').replace(/\D+/g, '');
@@ -367,6 +424,115 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       },
       { timeout: 10000, polling: 100 },
     );
+  }
+
+  /**
+   * Tras ENVIAR: espera el div `jconfirm-open` con `span.jconfirm-title` «Confirmar Datos»
+   * y botones Si/No en `.jconfirm-buttons`.
+   *
+   * En **Browserless** el portal suele mostrar **primero** un overlay con solo **CONTINUAR**
+   * (título vacío); en navegador manual a veces no lo ves. Sin pulsar CONTINUAR no llega el
+   * resumen «Confirmar Datos». Por eso, si detectamos solo CONTINUAR, hacemos clic y seguimos.
+   */
+  private async waitForJconfirmOpenConfirmarDatosAfterEnviar(
+    page: Page,
+    rowId: number,
+    totalTimeoutMs: number,
+  ): Promise<void> {
+    const deadline = Date.now() + totalTimeoutMs;
+    let continuarClicks = 0;
+    const maxContinuar = 8;
+
+    while (Date.now() < deadline) {
+      const step = await page.evaluate(() => {
+        const visible = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+        };
+
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(
+          visible,
+        );
+        roots.sort((a, b) => {
+          const za = parseInt(window.getComputedStyle(a).zIndex || '0', 10) || 0;
+          const zb = parseInt(window.getComputedStyle(b).zIndex || '0', 10) || 0;
+          return zb - za;
+        });
+
+        for (const root of roots) {
+          const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
+          const titleText = (titleSpan?.textContent ?? '').trim();
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          const btns = wrap
+            ? Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'))
+            : [];
+
+          const hasSi = btns.some((b) => /^si$/i.test((b.innerText || b.textContent || '').trim()));
+          const hasNo = btns.some((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+
+          if (/confirmar\s+datos/i.test(titleText) && hasSi && hasNo) {
+            return { action: 'found_confirmar' as const };
+          }
+
+          const contentText = (root.querySelector('.jconfirm-content')?.textContent ?? '').trim();
+          /**
+           * `ConfirmaDatos()` del portal usa `title: false` + icono `fa-spinner` en el título.
+           * No es un paso intermedio hacia «Confirmar Datos»; es error de validación (p. ej. valArray vacío).
+           */
+          const hasSpinnerTitle =
+            !!root.querySelector(
+              '.jconfirm-title-c .fa-spinner, .jconfirm-title-c .fa-spin, .jconfirm-icon-c .fa-spinner',
+            ) && !titleText;
+
+          if (!(hasSi && hasNo) && wrap && btns.length > 0) {
+            const continuarBtn = btns.find((b) =>
+              /continuar/i.test((b.innerText || b.textContent || '').trim()),
+            );
+            if (continuarBtn) {
+              const looksLikeValidationError =
+                hasSpinnerTitle ||
+                /adjuntar un documento|tipo archivo de demanda es obligatorio|debe seleccionar|debe digitar|correo no coincide|debe agregar un accionado/i.test(
+                  contentText,
+                );
+              if (looksLikeValidationError) {
+                return {
+                  action: 'portal_validation_modal' as const,
+                  preview: contentText.slice(0, 420),
+                };
+              }
+              continuarBtn.click();
+              return { action: 'clicked_continuar' as const };
+            }
+          }
+        }
+
+        return { action: 'idle' as const };
+      });
+
+      if (step.action === 'found_confirmar') {
+        return;
+      }
+      if (step.action === 'portal_validation_modal') {
+        throw new Error(`JCONFIRM_PORTAL_VALIDACION: ${step.preview}`);
+      }
+      if (step.action === 'clicked_continuar') {
+        continuarClicks += 1;
+        if (continuarClicks > maxContinuar) {
+          throw new Error('JCONFIRM_DEMASIADOS_PASOS_CONTINUAR');
+        }
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: el portal mostró CONTINUAR antes del resumen (típico en Browserless); clic ${continuarClicks} para mostrar «Confirmar Datos».`,
+        );
+        await delay(700);
+        continue;
+      }
+
+      await delay(100);
+    }
+
+    throw new Error('JCONFIRM_OPEN_CONFIRMAR_DATOS_TIMEOUT');
   }
 
   private async fillLugarEnvio(
@@ -1635,13 +1801,12 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     let confirmarDatosSiClicked = false;
     let confirmarDatosAction: 'SI' | 'NO' | undefined = undefined;
     let pdfAttached = false;
-    // Indica que el siguiente waitForFunction esperado es "modal Confirmar Datos".
-    let awaitingConfirmarDatosModal = false;
+    // Tras ENVIAR: esperamos div.jconfirm-open con «Confirmar Datos» (si falla el catch usa failureStage).
+    let awaitingJconfirmConfirmarDatos = false;
     let confirmarDatosModalDebug:
       | {
-          titles: string[];
-          buttonLabels: string[];
-          visibleBoxes: number;
+          visibleRoots: number;
+          perRoot: Array<{ titlePreview: string; buttons: string[] }>;
         }
       | undefined;
     try {
@@ -1750,16 +1915,26 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         });
       });
       await delay(500);
-      const fileInputs = await page.$$('input[type=file]');
-      const fileInput =
-        fileInputs.length === 1
-          ? fileInputs[0]
-          : fileInputs[fileInputs.length - 1] ?? fileInputs[0];
+      /**
+       * El portal solo registra el archivo en `valArray` / grilla si el PDF va al input que espera
+       * `agregarArchivo` (p. ej. `#ArchivoFile0` dentro de `.insertFile`). Elegir el último
+       * `input[type=file]` de la página falla si hay más de uno (reCAPTCHA u otros).
+       */
+      const fileInput = await page.$('.insertFile input[type=file]');
       if (!fileInput) {
-        throw new Error('No se encontró input[type=file] para adjuntar la demanda');
+        throw new Error(
+          'No se encontró .insertFile input[type=file] para adjuntar la demanda (esperado #ArchivoFile0).',
+        );
       }
       await fileInput.uploadFile(pdfPath);
-      await delay(2000);
+      await page.waitForFunction(
+        () => {
+          const el = document.querySelector<HTMLInputElement>('.insertFile input[type=file]');
+          return !!(el?.files?.length && el.files[0] && el.files[0].size > 0);
+        },
+        { timeout: 20000 },
+      );
+      await delay(800);
 
       await this.persistAutomationDetail(
         rowId,
@@ -1776,136 +1951,217 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       await delay(500);
       await addFileBtn.click();
       pdfAttached = true;
-      await delay(3000);
+      try {
+        await page.waitForFunction(
+          () => document.querySelectorAll('#tblFiles tbody tr').length > 0,
+          { timeout: 25000 },
+        );
+      } catch {
+        const spn = await page.evaluate(
+          () => (document.querySelector('#spnmsg')?.textContent ?? '').trim(),
+        );
+        throw new Error(
+          `ADJUNTO_DEMANDA_NO_EN_GRILLA: el portal no agregó fila en #tblFiles tras Agregar Archivo. spnmsg=${spn.slice(0, 240)}`,
+        );
+      }
+      await delay(1500);
 
       await this.solveRecaptcha(page, rowId);
       captchaResolved = true;
 
       await this.persistAutomationDetail(
         rowId,
-        'Bot: reCAPTCHA resuelto; se ejecutará clic en ENVIAR para abrir modal Confirmar Datos.',
+        'Bot: reCAPTCHA resuelto; siguiente paso: espera 1s y clic en ENVIAR (#enviar).',
       );
+
+      const enviarAfterRecaptchaDelayMs =
+        Number(this.configService.get<string>('ENVIAR_AFTER_RECAPTCHA_DELAY_MS') ?? '1000') ||
+        1000;
+      const confirmarDatosPostEnviarDelayMs =
+        Number(this.configService.get<string>('CONFIRMAR_DATOS_POST_ENVIAR_DELAY_MS') ?? '1000') ||
+        1000;
 
       const enviarBtn = await page.$('#enviar');
       if (!enviarBtn) {
         throw new Error('No se encontró el botón ENVIAR (#enviar) después del reCAPTCHA');
       }
+      this.appLogger.structured({
+        level: 'debug',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSER',
+        status: 'OK',
+        message: `Botón ENVIAR encontrado; se hará click en ${enviarAfterRecaptchaDelayMs}ms`,
+      });
       await enviarBtn.evaluate((el) => {
         (el as HTMLElement).scrollIntoView({ block: 'center', behavior: 'instant' });
       });
-      await delay(500);
+      await delay(enviarAfterRecaptchaDelayMs);
       await enviarBtn.click();
       enviarClicked = true;
 
       await this.persistAutomationDetail(rowId, 'Bot: ENVIAR clicado.');
       const confirmarDatosModalWaitMs =
         Number(this.configService.get<string>('CONFIRMAR_DATOS_MODAL_WAIT_MS') ?? '15000') || 15000;
-      await delay(300);
-      awaitingConfirmarDatosModal = true;
+      awaitingJconfirmConfirmarDatos = true;
+      await delay(confirmarDatosPostEnviarDelayMs);
 
-      const waitForConfirmarDatosModal = async (timeout: number): Promise<void> => {
-        await page.waitForFunction(
-          () => {
-            const normalize = (v: string) =>
-              v
-                .normalize('NFD')
-                .replace(/[\u0300-\u036f]/g, '')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .toUpperCase();
+      await this.writeHtmlDebugSnapshot(page, rowId, '01-tras-delay-post-ENVIAR-antes-esperar-jconfirm');
 
-            const openModals = Array.from(
-              document.querySelectorAll<HTMLElement>('.jconfirm.jconfirm-open'),
-            );
-
-            return openModals.some((modal) => {
-              const titleNodes = Array.from(
-                modal.querySelectorAll<HTMLElement>(
-                  '.jconfirm-title, .jconfirm-box .jconfirm-title, .jconfirm-title-c .jconfirm-title',
-                ),
-              );
-              const titles = titleNodes.map((n) => normalize(n.innerText || n.textContent || ''));
-              const isConfirmar = titles.some((t) => t.includes('CONFIRMAR DATOS'));
-              if (!isConfirmar) return false;
-
-              const buttons = Array.from(
-                modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn, .jconfirm-buttons button'),
-              );
-              const buttonLabels = buttons.map((btn) => normalize(btn.innerText || btn.textContent || ''));
-              return buttonLabels.includes('SI') && buttonLabels.includes('NO');
-            });
-          },
-          { timeout, polling: 100 },
-        );
-      };
-
-      await waitForConfirmarDatosModal(confirmarDatosModalWaitMs);
+      await this.waitForJconfirmOpenConfirmarDatosAfterEnviar(page, rowId, confirmarDatosModalWaitMs);
       confirmarDatosModalOpened = true;
-      awaitingConfirmarDatosModal = false;
+      awaitingJconfirmConfirmarDatos = false;
 
-      await this.persistAutomationDetail(
-        rowId,
-        'Bot: modal Confirmar Datos encontrado en DOM.',
-      );
-
-      const botonesModal = await page.evaluate(() => {
-        const modal = document.querySelector<HTMLElement>('.jconfirm.jconfirm-open');
-        const buttons = modal
-          ? Array.from(modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'))
-          : [];
-        const normalize = (txt: string) => txt.trim().toUpperCase();
-        const labels = buttons.map((b) => normalize(b.innerText || b.textContent || ''));
-        return {
-          hasSi: labels.some((l) => l === 'SI'),
-          hasNo: labels.some((l) => l === 'NO'),
-        };
+      await this.writeHtmlDebugSnapshot(page, rowId, '02-jconfirm-confirmar-datos-detectado-antes-clic-No', {
+        persistDetail: false,
       });
+
+      const jconfirmSnapshot = await page.evaluate(() => {
+        const visible = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+        };
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+        for (const root of roots) {
+          const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
+          const titleText = (titleSpan?.textContent ?? '').trim();
+          if (!/confirmar\s+datos/i.test(titleText)) continue;
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          const btns = wrap
+            ? Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'))
+            : [];
+          const labels = btns.map((b) => (b.innerText || b.textContent || '').trim());
+          return {
+            ok: true as const,
+            titleText,
+            buttonLabels: labels,
+          };
+        }
+        return { ok: false as const };
+      });
+
+      if (!jconfirmSnapshot.ok) {
+        throw new Error('JCONFIRM_OPEN_CONFIRMAR_DATOS: snapshot inconsistente tras wait');
+      }
+
       await this.persistAutomationDetail(
         rowId,
-        `Bot: botones modal detectados (SI=${botonesModal.hasSi ? 'sí' : 'no'}, NO=${botonesModal.hasNo ? 'sí' : 'no'}).`,
+        'Bot: div.jconfirm-open visible (overlay jConfirm — Confirmar Datos).',
       );
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: span.jconfirm-title encontrado — "${jconfirmSnapshot.titleText.slice(0, 120)}".`,
+      );
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: botones encontrados en .jconfirm-buttons — [${jconfirmSnapshot.buttonLabels.join(' | ')}].`,
+      );
+
+      /** Volcado del HTML del overlay a consola (Node) para depurar selectores. Ver .env.example. */
+      const logJconfirmHtml =
+        this.configService.get<string>('LOG_JCONFIRM_OPEN_HTML_CONSOLE') === 'true' ||
+        this.configService.get<string>('LOG_JCONFIRM_OPEN_HTML_CONSOLE') === '1';
+      if (logJconfirmHtml) {
+        const maxChars =
+          Number(this.configService.get<string>('LOG_JCONFIRM_OPEN_HTML_MAX_CHARS') ?? '200000') ||
+          200000;
+        const { rootOuterHTML, bytes } = await page.evaluate(() => {
+          const visible = (el: HTMLElement) => {
+            const s = window.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+          };
+          const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+          roots.sort((a, b) => {
+            const za = parseInt(window.getComputedStyle(a).zIndex || '0', 10) || 0;
+            const zb = parseInt(window.getComputedStyle(b).zIndex || '0', 10) || 0;
+            return zb - za;
+          });
+          for (const root of roots) {
+            const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
+            const titleText = (titleSpan?.textContent ?? '').trim();
+            if (!/confirmar\s+datos/i.test(titleText)) continue;
+            const html = root.outerHTML;
+            return { rootOuterHTML: html, bytes: html.length };
+          }
+          return { rootOuterHTML: '', bytes: 0 };
+        });
+        let toPrint = rootOuterHTML;
+        let truncated = false;
+        if (toPrint.length > maxChars) {
+          toPrint = `${toPrint.slice(0, maxChars)}\n<!-- … TRUNCADO: ${bytes} bytes totales, límite LOG_JCONFIRM_OPEN_HTML_MAX_CHARS=${maxChars} -->`;
+          truncated = true;
+        }
+        // eslint-disable-next-line no-console -- salida explícita pedida para inspección de DOM
+        console.log(
+          `\n========== [BOT demanda en línea] HTML div.jconfirm-open (antes de clic No) id=${rowId} bytes=${bytes}${
+            truncated ? ' TRUNCADO' : ''
+          } ==========`,
+        );
+        // eslint-disable-next-line no-console
+        console.log(toPrint);
+        // eslint-disable-next-line no-console
+        console.log('========== FIN HTML jconfirm-open ==========\n');
+        this.appLogger.structured({
+          level: 'debug',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'OK',
+          message: 'HTML div.jconfirm-open volcado a consola (LOG_JCONFIRM_OPEN_HTML_CONSOLE)',
+          meta: { rowId, bytes, truncated, maxChars },
+        });
+      }
 
       /**
        * MODO 1 (actual, por defecto) — ENVÍO SIMULADO:
-       *   - No se hace clic en "Si" en el modal.
-       *   - Se considera que la demanda quedó registrada de forma simulada.
+       *   - Clic en "No". El clic en "Si" (envío real al portal) va comentado abajo.
        */
       const clicNo = await page.evaluate(() => {
-        const modal = document.querySelector<HTMLElement>('.jconfirm.jconfirm-open');
-        const buttons = modal
-          ? Array.from(modal.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'))
-          : [];
-        const noBtn = buttons.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
-        if (!noBtn) return false;
-        noBtn.click();
-        return true;
+        const visible = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          const r = el.getBoundingClientRect();
+          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+        };
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+        for (const root of roots) {
+          const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
+          const titleText = (titleSpan?.textContent ?? '').trim();
+          if (!/confirmar\s+datos/i.test(titleText)) continue;
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          if (!wrap) continue;
+          const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+          const noBtn = btns.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+          if (!noBtn) continue;
+          noBtn.click();
+          return true;
+        }
+        return false;
       });
 
       if (!clicNo) {
         await this.persistAutomationDetail(
           rowId,
-          'Bot: modal Confirmar Datos abierto, pero no se encontró el botón NO para simulación.',
+          'Bot: div.jconfirm-open con «Confirmar Datos» visible, pero no se encontró el botón No en .jconfirm-buttons.',
         );
-        throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_MODAL_CONFIRMAR_DATOS');
+        throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_JCONFIRM_CONFIRMAR_DATOS');
       }
 
       await delay(500);
 
-      // Intentamos esperar que el modal se cierre; si no, igual consideramos la simulación hecha.
+      // Esperamos a que el div jconfirm-open deje de mostrar «Confirmar Datos» (cierre del overlay).
       try {
         await page.waitForFunction(
           () => {
-            const boxes = Array.from(
-              document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
-            );
-            return !boxes.some((b) =>
-              /confirmar\s+datos/i.test((b.innerText || b.textContent || '').trim()),
-            );
+            const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open'));
+            return !roots.some((root) => {
+              const span = root.querySelector<HTMLElement>('span.jconfirm-title');
+              return span && /confirmar\s+datos/i.test((span.textContent || '').trim());
+            });
           },
           { timeout: 3000, polling: 100 },
         );
       } catch {
-        // ignore (algunos modales tardan en cerrarse)
+        // ignore (el overlay a veces tarda en cerrarse)
       }
 
       await this.persistAutomationDetail(
@@ -1937,14 +2193,12 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
        * // ENVÍO REAL (descomentar para producción):
        * //
        * // const siBtnHandle = await page.evaluateHandle(() => {
-       * //   const buttons = Array.from(
-       * //     document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn'),
-       * //   );
-       * //   return (
-       * //     buttons.find((b) =>
-       * //       /^si$/i.test((b.innerText || b.textContent || '').trim()),
-       * //     ) ?? null
-       * //   );
+       * //   const root = document.querySelector<HTMLElement>('.jconfirm-open');
+       * //   const wrap = root?.querySelector<HTMLElement>('.jconfirm-buttons');
+       * //   const buttons = wrap
+       * //     ? Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'))
+       * //     : [];
+       * //   return buttons.find((b) => /^si$/i.test((b.innerText || b.textContent || '').trim())) ?? null;
        * // });
        * // const siEl = siBtnHandle.asElement();
        * // if (!siEl) {
@@ -2003,54 +2257,105 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
         };
       }
 
-      // Si el modal no aparece en el tiempo esperado, ya sabemos que:
-      // - el PDF se adjuntó
-      // - se intentó ENVIAR después del reCAPTCHA
-      // Entonces no es un error real de PDF, sino de portal/modal lento.
-      if (awaitingConfirmarDatosModal) {
+      if (msg.includes('ADJUNTO_DEMANDA_NO_EN_GRILLA')) {
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: ${msg.slice(0, 420)}`,
+        );
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'PDF no quedó en grilla del portal (#tblFiles)',
+          meta: { rowId },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked: false,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'portal_adjunto_no_en_grilla',
+        };
+      }
+
+      // Tras ENVIAR: el portal abrió jConfirm de validación (ConfirmaDatos), no «Confirmar Datos».
+      if (awaitingJconfirmConfirmarDatos && msg.includes('JCONFIRM_PORTAL_VALIDACION')) {
+        const detalle = msg.replace(/^JCONFIRM_PORTAL_VALIDACION:\s*/i, '').trim();
+        await this.persistAutomationDetail(
+          rowId,
+          `Bot: ENVIAR rechazado por validación del portal (no es «Confirmar Datos»): ${detalle.slice(0, 420)}`,
+        );
+        try {
+          await this.writeHtmlDebugSnapshot(page, rowId, '03-FALLO-validacion-portal-pre-confirmar-datos');
+        } catch {
+          /* ignore */
+        }
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked,
+          confirmarDatosModalOpened: false,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'portal_enviar_validation_error',
+        };
+      }
+
+      // Tras ENVIAR: no apareció a tiempo div.jconfirm-open con «Confirmar Datos» + Si/No (PDF OK).
+      if (awaitingJconfirmConfirmarDatos) {
         const confirmarDatosModalWaitMs =
-        // Esperamos 15 segundos por defecto
           Number(this.configService.get<string>('CONFIRMAR_DATOS_MODAL_WAIT_MS') ?? '15000') || 15000;
         const confirmarDatosModalWaitSeconds = Math.round(confirmarDatosModalWaitMs / 1000);
         try {
+          await this.writeHtmlDebugSnapshot(page, rowId, '03-FALLO-timeout-sin-Confirmar-Datos');
+        } catch {
+          /* ignore */
+        }
+        try {
           confirmarDatosModalDebug = await page.evaluate(() => {
-            const titles = Array.from(
-              document.querySelectorAll<HTMLElement>('.jconfirm-box .jconfirm-title'),
-            ).map((b) => (b.innerText || b.textContent || '').trim());
-            const buttonLabels = Array.from(
-              document.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons .btn, .jconfirm-buttons button'),
-            ).map((btn) => (btn.innerText || btn.textContent || '').trim());
-            const visibleBoxes = Array.from(
-              document.querySelectorAll<HTMLElement>('.jconfirm-holder .jconfirm-box'),
-            ).filter((box) => {
-              const style = window.getComputedStyle(box);
-              const rect = box.getBoundingClientRect();
-              return (
-                style.display !== 'none' &&
-                style.visibility !== 'hidden' &&
-                rect.width > 0 &&
-                rect.height > 0
-              );
-            }).length;
+            const visible = (el: HTMLElement) => {
+              const s = window.getComputedStyle(el);
+              const r = el.getBoundingClientRect();
+              return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+            };
+            const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+            const perRoot = roots.slice(0, 4).map((root) => {
+              const titlePreview = (root.querySelector('span.jconfirm-title')?.textContent ?? '')
+                .trim()
+                .slice(0, 80);
+              const buttons = Array.from(
+                root.querySelectorAll<HTMLButtonElement>('.jconfirm-buttons button, .jconfirm-buttons .btn'),
+              ).map((btn) => (btn.innerText || btn.textContent || '').trim());
+              return { titlePreview, buttons: buttons.slice(0, 8) };
+            });
             return {
-              titles: titles.slice(0, 5),
-              buttonLabels: buttonLabels.slice(0, 10),
-              visibleBoxes,
+              visibleRoots: roots.length,
+              perRoot,
             };
           });
         } catch {
           confirmarDatosModalDebug = undefined;
         }
         const debugSuffix = confirmarDatosModalDebug
-          ? ` | debug_modal: visibleBoxes=${confirmarDatosModalDebug.visibleBoxes}, titles=[${confirmarDatosModalDebug.titles.join(
-              ' | ',
-            )}], buttons=[${confirmarDatosModalDebug.buttonLabels.join(' | ')}]`
+          ? ` | debug_jconfirm: roots=${confirmarDatosModalDebug.visibleRoots}, detalle=${JSON.stringify(
+              confirmarDatosModalDebug.perRoot,
+            ).slice(0, 360)}`
           : '';
+        const demasiadosContinuar = lower.includes('jconfirm_demasiados_pasos_continuar');
         await this.persistAutomationDetail(
           rowId,
-          `Bot: modal Confirmar Datos no detectado tras ENVIAR (${confirmarDatosModalWaitSeconds}s).${debugSuffix}`.slice(
+          `Bot: tras ENVIAR, no apareció a tiempo «Confirmar Datos»+Si/No (máx. ${confirmarDatosModalWaitSeconds}s). HTML fallo en logs/html-debug/ (ver detail anterior).${demasiadosContinuar ? ' Demasiados pasos CONTINUAR.' : ''}${debugSuffix}`.slice(
             0,
-            470,
+            480,
           ),
         );
         return {
@@ -2063,7 +2368,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           confirmarDatosNoClicked: false,
           confirmarDatosSiClicked: false,
           confirmarDatosAction: undefined,
-          failureStage: 'modal_not_opened',
+          failureStage: 'jconfirm_confirmar_datos_timeout',
         };
       }
 

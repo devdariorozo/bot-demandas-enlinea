@@ -486,6 +486,11 @@ export class DemandsOnlineAutomationService {
           updated_at: new Date(),
         });
 
+        /**
+         * BD externa (cartera): actualiza la demanda judicial asociada.
+         * Nota: en este repositorio no hay tabla tipo `lawsuit_assigned`; el vínculo
+         * ciudad/asignación ya está en `lawsuit_court_assignments` vía sync previo.
+         */
         if (updatedDemanda.name_data_base && updatedDemanda.lawsuit_id) {
           const baseName = updatedDemanda.name_data_base;
           const sql = `
@@ -530,27 +535,35 @@ export class DemandsOnlineAutomationService {
             'Bot: demandante en grilla; complete demandado, apoderado y adjuntos manualmente.';
           managementStatusFinal = 'En proceso';
         } else if (pdfDemandaAdjuntado === true) {
-          if (
+          if (failureStage === 'recaptcha') {
+            detailFinal =
+              'Bot: DEMANDA adjuntada con éxito, pero no se pudo resolver el reCAPTCHA automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'jconfirm_confirmar_datos_timeout') {
+            detailFinal =
+              'Bot: tras ENVIAR no apareció a tiempo el div.jconfirm-open con span.jconfirm-title «Confirmar Datos» y Si/No en .jconfirm-buttons. Aumente CONFIRMAR_DATOS_MODAL_WAIT_MS o revise el portal.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'portal_enviar_validation_error') {
+            detailFinal =
+              'Bot: el portal mostró un mensaje de validación al ENVIAR (no el resumen «Confirmar Datos»). Suele indicar que el PDF no quedó en la grilla (valArray vacío), reCAPTCHA sin token, u otro requisito. Revise el detalle técnico y la sección Archivos adjuntos en el portal.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'portal_adjunto_no_en_grilla') {
+            detailFinal =
+              'Bot: tras «Agregar Archivo» el portal no registró el PDF en la grilla (#tblFiles). Revise tipo DEMANDA, nombre del archivo y mensaje #spnmsg en el portal; vuelva a adjuntar.';
+            managementStatusFinal = 'Novedad';
+          } else if (
             captchaResolved === true &&
             enviarClicked === true &&
             confirmarDatosModalOpened !== true
           ) {
             detailFinal =
-              'Bot: ENVIAR ejecutado, pero no se detectó el modal Confirmar Datos. Revise el portal y continúe manualmente.';
-            managementStatusFinal = 'Novedad';
-          } else if (failureStage === 'recaptcha') {
-            detailFinal =
-              'Bot: DEMANDA adjuntada con éxito, pero no se pudo resolver el reCAPTCHA automáticamente. Revise el portal, resuelva el reCAPTCHA y haga clic en ENVIAR manualmente.';
-            managementStatusFinal = 'Novedad';
-          } else if (failureStage === 'modal_not_opened') {
-            detailFinal =
-              'Bot: ENVIAR ejecutado, pero no se detectó el modal Confirmar Datos. Revise el portal y continúe manualmente.';
+              'Bot: ENVIAR ejecutado, pero no se detectó el div.jconfirm-open con «Confirmar Datos». Revise el portal y continúe manualmente.';
             managementStatusFinal = 'Novedad';
           } else if (confirmarDatosNoClicked === true) {
             // Normalmente esto debería ir por la rama demandaRegistrada === true,
             // pero lo dejamos por seguridad.
             detailFinal =
-              'Bot: reCAPTCHA resuelto, modal "Confirmar Datos" abierto y simulación finalizada con "NO".';
+              'Bot: reCAPTCHA resuelto, div.jconfirm-open «Confirmar Datos» y simulación finalizada con No.';
             managementStatusFinal = 'Novedad';
           } else {
             detailFinal =
