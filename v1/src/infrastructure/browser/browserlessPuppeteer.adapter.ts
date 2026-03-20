@@ -445,15 +445,16 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
     while (Date.now() < deadline) {
       const step = await page.evaluate(() => {
-        const visible = (el: HTMLElement) => {
+        // Solo verifica display/visibility — getBoundingClientRect puede devolver 0 en headless
+        // antes de que el layout haga flush, causando falsos negativos.
+        const notHidden = (el: HTMLElement) => {
           const s = window.getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
         };
 
-        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(
-          visible,
-        );
+        const roots = Array.from(
+          document.querySelectorAll<HTMLElement>('.jconfirm-open'),
+        ).filter(notHidden);
         roots.sort((a, b) => {
           const za = parseInt(window.getComputedStyle(a).zIndex || '0', 10) || 0;
           const zb = parseInt(window.getComputedStyle(b).zIndex || '0', 10) || 0;
@@ -501,8 +502,9 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
                   preview: contentText.slice(0, 420),
                 };
               }
-              continuarBtn.click();
-              return { action: 'clicked_continuar' as const };
+              // NO hacemos click aquí — se usa Puppeteer click desde fuera para
+              // disparar todos los eventos del mouse que jConfirm necesita.
+              return { action: 'need_continuar' as const };
             }
           }
         }
@@ -516,7 +518,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       if (step.action === 'portal_validation_modal') {
         throw new Error(`JCONFIRM_PORTAL_VALIDACION: ${step.preview}`);
       }
-      if (step.action === 'clicked_continuar') {
+      if (step.action === 'need_continuar') {
         continuarClicks += 1;
         if (continuarClicks > maxContinuar) {
           throw new Error('JCONFIRM_DEMASIADOS_PASOS_CONTINUAR');
@@ -525,11 +527,33 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           rowId,
           `Bot: el portal mostró CONTINUAR antes del resumen (típico en Browserless); clic ${continuarClicks} para mostrar «Confirmar Datos».`,
         );
-        await delay(700);
+        // Dispatch completo mousedown+mouseup+click para que jConfirm procese el evento
+        await page.evaluate(() => {
+          const roots = Array.from(
+            document.querySelectorAll<HTMLElement>('.jconfirm-open'),
+          );
+          for (const root of roots) {
+            const btns = Array.from(
+              root.querySelectorAll<HTMLButtonElement>(
+                '.jconfirm-buttons button, .jconfirm-buttons .btn',
+              ),
+            );
+            const btn = btns.find((b) =>
+              /continuar/i.test((b.innerText || b.textContent || '').trim()),
+            );
+            if (btn) {
+              btn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              btn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+              btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+              return;
+            }
+          }
+        });
+        await delay(800);
         continue;
       }
 
-      await delay(100);
+      await delay(150);
     }
 
     throw new Error('JCONFIRM_OPEN_CONFIRMAR_DATOS_TIMEOUT');
@@ -2016,12 +2040,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       });
 
       const jconfirmSnapshot = await page.evaluate(() => {
-        const visible = (el: HTMLElement) => {
+        const notHidden = (el: HTMLElement) => {
           const s = window.getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
         };
-        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
         for (const root of roots) {
           const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
           const titleText = (titleSpan?.textContent ?? '').trim();
@@ -2066,12 +2089,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           Number(this.configService.get<string>('LOG_JCONFIRM_OPEN_HTML_MAX_CHARS') ?? '200000') ||
           200000;
         const { rootOuterHTML, bytes } = await page.evaluate(() => {
-          const visible = (el: HTMLElement) => {
+          const notHidden = (el: HTMLElement) => {
             const s = window.getComputedStyle(el);
-            const r = el.getBoundingClientRect();
-            return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
           };
-          const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+          const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
           roots.sort((a, b) => {
             const za = parseInt(window.getComputedStyle(a).zIndex || '0', 10) || 0;
             const zb = parseInt(window.getComputedStyle(b).zIndex || '0', 10) || 0;
@@ -2117,12 +2139,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
        *   - Clic en "No". El clic en "Si" (envío real al portal) va comentado abajo.
        */
       const clicNo = await page.evaluate(() => {
-        const visible = (el: HTMLElement) => {
+        const notHidden = (el: HTMLElement) => {
           const s = window.getComputedStyle(el);
-          const r = el.getBoundingClientRect();
-          return s.display !== 'none' && s.visibility !== 'hidden' && r.width > 0 && r.height > 0;
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
         };
-        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(visible);
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
         for (const root of roots) {
           const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
           const titleText = (titleSpan?.textContent ?? '').trim();
@@ -2132,7 +2153,9 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
           const noBtn = btns.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
           if (!noBtn) continue;
-          noBtn.click();
+          noBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          noBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          noBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
           return true;
         }
         return false;
