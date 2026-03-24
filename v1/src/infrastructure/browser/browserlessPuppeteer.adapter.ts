@@ -1,7 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import puppeteer, { Browser, Page } from 'puppeteer';
 
@@ -21,7 +20,9 @@ import { AppLogger } from '@infrastructure/logging/appLogger.service';
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 @Injectable()
-export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
+export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnModuleInit {
+  private readonly tmpBaseDir = path.join(process.cwd(), 'tmp');
+
   constructor(
     private readonly configService: ConfigService,
     private readonly appLogger: AppLogger,
@@ -31,8 +32,20 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     private readonly demandPdfPort: DemandPdfPort,
   ) {}
 
+  onModuleInit(): void {
+    fs.mkdirSync(this.tmpBaseDir, { recursive: true });
+  }
+
   /** Escribe solo detail + updated_at en BD para que listados/polling vean el paso actual. */
   private async persistAutomationDetail(id: number, detail: string): Promise<void> {
+    this.appLogger.structured({
+      level: 'log',
+      context: BrowserlessPuppeteerAdapter.name,
+      type: 'AUTOMATION',
+      status: 'Info',
+      message: detail,
+      meta: { demandaId: id },
+    });
     await this.managementDemandsOnlineRepository.updateAutomationDetail(id, detail);
   }
 
@@ -57,13 +70,6 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     const fileProject = path.join(projectDir, baseName);
     fs.writeFileSync(fileProject, html, 'utf8');
 
-    const fileTmp = path.join(os.tmpdir(), baseName);
-    try {
-      fs.writeFileSync(fileTmp, html, 'utf8');
-    } catch {
-      /* ignore */
-    }
-
     const relative = path.relative(process.cwd(), fileProject).replace(/\\/g, '/');
     const line = `[HTML debug] id=${rowId} paso=${step} → ${fileProject} (${html.length} bytes) | también: ${relative}`;
     // eslint-disable-next-line no-console
@@ -73,12 +79,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       context: BrowserlessPuppeteerAdapter.name,
       type: 'BROWSER',
       status: 'OK',
-      message: 'Snapshot HTML (ENVIAR / jconfirm) en proyecto y /tmp',
+      message: 'Snapshot HTML (ENVIAR / jconfirm) en proyecto',
       meta: {
         rowId,
         step,
         fileProject,
-        fileTmp,
         relativeFromCwd: relative,
         bytes: html.length,
       },
@@ -256,32 +261,31 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
       await this.persistAutomationDetail(rowId, 'Bot: sujetos procesales — demandante jurídico (inicio)');
 
-      const { reachedArchivosAdjuntos, pdfDemandaAdjuntado } =
-        await this.fillSujetosProcesalesDemandanteJuridico(
-          page,
-          rowId,
-          input.demanda,
-          {
-            nit: nitCarterasPropias,
-            company_name: input.demandante?.company_name ?? '',
-            address: input.demandante?.address ?? '',
-            contact_number: input.demandante?.contact_number ?? '',
-            email_notifications: notificationEmail,
-          },
-          {
-            document_type_name: input.demandado?.document_type_name ?? '',
-            identification: input.demandado?.identification ?? '',
-            first_name: input.demandado?.first_name ?? '',
-            second_name: input.demandado?.second_name ?? '',
-            first_last_name: input.demandado?.first_last_name ?? '',
-            second_last_name: input.demandado?.second_last_name ?? '',
-            completed_name: input.demandado?.completed_name ?? '',
-            address: this.normalizeUpper(input.demandado?.address ?? ''),
-            phone: input.demandado?.phone ?? '',
-          },
-          input.apoderado,
-        );
-      return { reachedArchivosAdjuntos, pdfDemandaAdjuntado };
+      const result = await this.fillSujetosProcesalesDemandanteJuridico(
+        page,
+        rowId,
+        input.demanda,
+        {
+          nit: nitCarterasPropias,
+          company_name: input.demandante?.company_name ?? '',
+          address: input.demandante?.address ?? '',
+          contact_number: input.demandante?.contact_number ?? '',
+          email_notifications: notificationEmail,
+        },
+        {
+          document_type_name: input.demandado?.document_type_name ?? '',
+          identification: input.demandado?.identification ?? '',
+          first_name: input.demandado?.first_name ?? '',
+          second_name: input.demandado?.second_name ?? '',
+          first_last_name: input.demandado?.first_last_name ?? '',
+          second_last_name: input.demandado?.second_last_name ?? '',
+          completed_name: input.demandado?.completed_name ?? '',
+          address: this.normalizeUpper(input.demandado?.address ?? ''),
+          phone: input.demandado?.phone ?? '',
+        },
+        input.apoderado,
+      );
+      return result;
     } finally {
       try {
         await page.close();
@@ -1438,7 +1442,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       );
     }
 
-    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03) (id = 1476). Obligatorio para cerrar el flujo del Demandado;
+    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03). Obligatorio para cerrar el flujo del Demandado;
     // si el portal no ofrece el select o la opción predeterminada, se marca Novedad en el servicio (no se continúa).
     await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
     await page.waitForFunction(
@@ -1454,7 +1458,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
     const localidadResult = await page.evaluate(() => {
       const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
       if (!select) {
-        return { ok: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
+        return { ok: false, skipped: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
       }
       const normalize = (value: string) =>
         value
@@ -1462,31 +1466,35 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           .replace(/[\u0300-\u036f]/g, '')
           .trim()
           .toUpperCase();
-      const target = '00 - DESCONOCIDA / DUDOSA (41-03)';
       const items = Array.from(select.options)
         .filter((o) => o.textContent && o.textContent.trim().length > 0)
         .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
-      let candidate =
+
+      // 1ª prioridad: 00 - DESCONOCIDA / DUDOSA (41-03)
+      const candidate =
         items.find((i) => i.option.value === '1476') ??
-        items.find((i) => i.norm === normalize(target)) ??
         items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
-        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA'));
+        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA')) ??
+        // 2ª prioridad: Sin Localidad (value=0)
+        items.find((i) => i.option.value === '0') ??
+        items.find((i) => i.norm === 'SIN LOCALIDAD');
 
       if (!candidate) {
         return {
           ok: false,
-          error:
-            'No se encontró la opción "00 - DESCONOCIDA / DUDOSA (41-03)" (value=1476) en el select de Localidad (DDlLocalidad)',
+          skipped: false,
+          error: 'Localidad no disponible: no se encontró "00 - DESCONOCIDA / DUDOSA" ni "Sin Localidad" en el select.',
         };
       }
+
       select.value = candidate.option.value;
       select.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true };
+      return { ok: true, skipped: false, selected: candidate.option.textContent?.trim() };
     });
 
     if (!localidadResult.ok) {
       throw new Error(
-        `LOCALIDAD_PREDETERMINADA_NO_ENCONTRADA: ${localidadResult.error ?? 'Opción de localidad predeterminada no disponible en el portal'}`,
+        `LOCALIDAD_PREDETERMINADA_NO_ENCONTRADA: ${localidadResult.error ?? 'Opción de localidad no disponible en el portal'}`,
       );
     }
 
@@ -1813,7 +1821,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
      * se elimina la carpeta completa.
      */
     const tmpDir = path.join(
-      os.tmpdir(),
+      this.tmpBaseDir,
       `${rowId}-${demanda.portfolio_type_id}-${demanda.client_id}`,
     );
     let pdfPath: string | null = null;
@@ -1950,15 +1958,31 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
           'No se encontró .insertFile input[type=file] para adjuntar la demanda (esperado #ArchivoFile0).',
         );
       }
-      await fileInput.uploadFile(pdfPath);
-      await page.waitForFunction(
-        () => {
-          const el = document.querySelector<HTMLInputElement>('.insertFile input[type=file]');
-          return !!(el?.files?.length && el.files[0] && el.files[0].size > 0);
+      /**
+       * uploadFile() envía solo el path local al browser remoto (Browserless),
+       * que no puede acceder al filesystem del servidor → archivo corrupto en el portal.
+       * Solución: leer el PDF localmente, codificarlo en base64 y construir el File
+       * directamente en el DOM del browser remoto vía page.evaluate.
+       */
+      const pdfBase64 = fs.readFileSync(pdfPath).toString('base64');
+      const pdfFileName = path.basename(pdfPath);
+      await page.evaluate(
+        ({ base64Data, fileName }: { base64Data: string; fileName: string }) => {
+          const input = document.querySelector<HTMLInputElement>('.insertFile input[type=file]');
+          if (!input) throw new Error('input[type=file] no encontrado en .insertFile');
+          const bytes = atob(base64Data);
+          const arr = new Uint8Array(bytes.length);
+          for (let i = 0; i < bytes.length; i++) arr[i] = bytes.charCodeAt(i);
+          const blob = new Blob([arr], { type: 'application/pdf' });
+          const file = new File([blob], fileName, { type: 'application/pdf' });
+          const dt = new DataTransfer();
+          dt.items.add(file);
+          input.files = dt.files;
+          input.dispatchEvent(new Event('change', { bubbles: true }));
         },
-        { timeout: 20000 },
+        { base64Data: pdfBase64, fileName: pdfFileName },
       );
-      await delay(800);
+      await delay(2000);
 
       await this.persistAutomationDetail(
         rowId,
@@ -2513,21 +2537,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       };
     });
 
-    // Disparamos el solve explícitamente. Aunque usemos solveCaptchas=true,
-    // esto reduce el riesgo de que perdamos el evento por llegar tarde a los listeners.
-    try {
-      await (cdp as any).send('Browserless.solveCaptcha');
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      this.appLogger.structured({
-        level: 'warn',
-        context: BrowserlessPuppeteerAdapter.name,
-        type: 'BROWSER',
-        status: 'WARN',
-        message: 'Browserless.solveCaptcha falló (fallback a token/eventos)',
-        meta: { rowId, error: msg.slice(0, 200) },
-      });
-    }
+    // solveCaptchas=true en la URL ya resuelve el captcha automáticamente.
+    // El comando explícito Browserless.solveCaptcha bloqueaba ~22s y luego
+    // lanzaba "Target closed", matando la página. Se elimina — los listeners
+    // captchaAutoSolved + tokenPromise son suficientes.
 
     const race = await Promise.race([
       tokenPromise.then((ok) => ({ kind: 'token' as const, ok })),
@@ -2545,6 +2558,11 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
       }
       await this.persistAutomationDetail(rowId, 'Bot: reCAPTCHA — token generado; continuando flujo.');
       if (autoCleanup) autoCleanup();
+      try {
+        await page.evaluate(() => true);
+      } catch {
+        throw new Error('RECAPTCHA_PAGE_DETACHED: la página fue cerrada tras la resolución del reCAPTCHA.');
+      }
       return;
     }
 
@@ -2608,6 +2626,12 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort {
 
     if (!tokenOk) {
       throw new Error('RECAPTCHA_NO_RESUELTO: Browserless no generó el token en el DOM.');
+    }
+
+    try {
+      await page.evaluate(() => true);
+    } catch {
+      throw new Error('RECAPTCHA_PAGE_DETACHED: la página fue cerrada tras la resolución del reCAPTCHA.');
     }
   }
 }

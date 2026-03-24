@@ -23,6 +23,10 @@ Thumbs.db
 # Logs
 logs/
 *.log
+
+# PDFs temporales (adjuntos bot)
+tmp/
+!tmp/.gitkeep
 npm-debug.log*
 
 # Test
