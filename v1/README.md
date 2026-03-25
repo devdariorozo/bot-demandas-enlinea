@@ -320,7 +320,7 @@ Código: `browserlessPuppeteer.adapter.ts` · `demandsOnlineAutomation.service.t
 ### 1. Base de datos
 
 ```sql
-CREATE DATABASE bot_demandas_online CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE bot_demandas_online CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci;
 ```
 
 Tablas gestionadas por migraciones: `environment_type`, `state_type`, `portfolio_type`, `data_bases`, `attention_schedule`, `portfolio_city_config`, `amount_type`, `company_type`, `lawyer_data`, `holiday`, `management_demands_online`, `bot_control`.
