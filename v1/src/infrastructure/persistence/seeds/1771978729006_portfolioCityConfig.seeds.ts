@@ -23,7 +23,6 @@ export const portfolioCityConfigSeeds = async (dataSource: DataSource) => {
     { id_city_views: 1054, name_departament: 'ARAUCA', name_city: 'TAME', city: 'TAME - ARAUCA' },
 
     // ATLÁNTICO
-    { id_city_views: 126, name_departament: 'ATLÁNTICO', name_city: 'BARRANQUILLA', city: 'BARRANQUILLA - ATLÁNTICO' },
     { id_city_views: 142, name_departament: 'ATLÁNTICO', name_city: 'SABANALARGA', city: 'SABANALARGA - ATLÁNTICO' },
     { id_city_views: 145, name_departament: 'ATLÁNTICO', name_city: 'SOLEDAD', city: 'SOLEDAD - ATLÁNTICO' },
 

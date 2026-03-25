@@ -20,12 +20,13 @@ build/
 .DS_Store
 Thumbs.db
 
-# Logs
-logs/
+# Logs (solo versionar .gitkeep; el resto se ignora)
+logs/*
+!logs/.gitkeep
 *.log
 
-# PDFs temporales (adjuntos bot)
-tmp/
+# PDFs temporales (adjuntos bot) — solo versionar .gitkeep
+tmp/*
 !tmp/.gitkeep
 npm-debug.log*
 

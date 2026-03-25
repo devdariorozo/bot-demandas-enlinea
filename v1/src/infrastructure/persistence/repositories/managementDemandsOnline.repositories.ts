@@ -7,6 +7,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { ManagementDemandsOnline } from '@domain/entities/managementDemandsOnline.entities';
 import {
   CreateManagementDemandsOnlineInput,
+  FindAllManagementDemandsOnlineFilters,
   ManagementDemandsOnlineRepository,
 } from '@domain/ports/managementDemandsOnline.ports';
 import { ManagementDemandsOnlineEntity } from '../entities/managementDemandsOnline.entities';
@@ -51,8 +52,8 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
     return saved;
   }
 
-  async findAll(): Promise<ManagementDemandsOnline[]> {
-    const raw = await this.repo
+  async findAll(filters: FindAllManagementDemandsOnlineFilters = {}): Promise<ManagementDemandsOnline[]> {
+    const qb = this.repo
       .createQueryBuilder('m')
       .leftJoin(StateTypeEntity, 'st', 'st.id = m.state_type_id')
       .leftJoin(PortfolioCityConfigEntity, 'pcc', 'pcc.id = m.portfolio_city_config_id')
@@ -87,8 +88,34 @@ export class ManagementDemandsOnlineRepositoryImpl implements ManagementDemandsO
       ])
       .addSelect('st.type', 'state_type_name')
       .addSelect('env.type', 'environment_type_name')
-      .addSelect('pf.type', 'portfolio_type_name')
-      .getRawMany();
+      .addSelect('pf.type', 'portfolio_type_name');
+
+    if (filters.portfolio_type_id !== undefined) {
+      qb.andWhere('m.portfolio_type_id = :portfolio_type_id', { portfolio_type_id: filters.portfolio_type_id });
+    }
+    if (filters.name_data_base) {
+      qb.andWhere('m.name_data_base = :name_data_base', { name_data_base: filters.name_data_base });
+    }
+    if (filters.amount_type_id !== undefined) {
+      qb.andWhere('m.amount_type_id = :amount_type_id', { amount_type_id: filters.amount_type_id });
+    }
+    if (filters.number_filed) {
+      qb.andWhere('m.number_filed = :number_filed', { number_filed: filters.number_filed });
+    }
+    if (filters.management_status) {
+      qb.andWhere('m.management_status = :management_status', { management_status: filters.management_status });
+    }
+    if (filters.start_date) {
+      qb.andWhere('m.created_at >= :start_date', { start_date: filters.start_date });
+    }
+    if (filters.end_date) {
+      // Incluir todo el día final
+      const endOfDay = new Date(filters.end_date);
+      endOfDay.setHours(23, 59, 59, 999);
+      qb.andWhere('m.created_at <= :end_date', { end_date: endOfDay });
+    }
+
+    const raw = await qb.getRawMany();
 
     return raw.map((row: Record<string, unknown>) => ({
       id: row.m_id as number,

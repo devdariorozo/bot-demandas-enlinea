@@ -13,6 +13,7 @@ import {
   MANAGEMENT_DEMANDS_ONLINE_REPOSITORY,
   ManagementDemandsOnlineRepository,
   CreateManagementDemandsOnlineInput,
+  FindAllManagementDemandsOnlineFilters,
 } from '@domain/ports/managementDemandsOnline.ports';
 import { STATE_TYPE_REPOSITORY, StateTypeRepository } from '@domain/ports/stateType.ports';
 import { AMOUNT_TYPE_REPOSITORY, AmountTypeRepository } from '@domain/ports/amountType.ports';
@@ -64,9 +65,9 @@ export class ManagementDemandsOnlineService {
     }
   }
 
-  async findAll(): Promise<ManagementDemandsOnline[]> {
+  async findAll(filters?: FindAllManagementDemandsOnlineFilters): Promise<ManagementDemandsOnline[]> {
     try {
-      return await this.managementDemandsOnlineRepository.findAll();
+      return await this.managementDemandsOnlineRepository.findAll(filters);
     } catch {
       throw new InternalServerErrorException('Error al obtener los registros de gestión de demandas');
     }

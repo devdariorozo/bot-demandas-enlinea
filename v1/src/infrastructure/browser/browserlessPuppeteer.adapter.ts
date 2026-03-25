@@ -51,55 +51,6 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
     await this.managementDemandsOnlineRepository.updateAutomationDetail(id, detail);
   }
 
-  /**
-   * Guarda el HTML completo de la página bajo `logs/html-debug/` del proyecto (misma carpeta que los .log).
-   * También copia en /tmp por compatibilidad. Opcionalmente escribe `detail` con la ruta relativa.
-   */
-  private async writeHtmlDebugSnapshot(
-    page: Page,
-    rowId: number,
-    step: string,
-    options?: { persistDetail?: boolean },
-  ): Promise<string> {
-    const html = await page.evaluate(() => document.documentElement.outerHTML);
-    const safe = step.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 80);
-    const baseName = `bot-demanda-enlinea-id${rowId}-${safe}-${Date.now()}.html`;
-
-    const projectDir = path.join(process.cwd(), 'logs', 'html-debug');
-    if (!fs.existsSync(projectDir)) {
-      fs.mkdirSync(projectDir, { recursive: true });
-    }
-    const fileProject = path.join(projectDir, baseName);
-    fs.writeFileSync(fileProject, html, 'utf8');
-
-    const relative = path.relative(process.cwd(), fileProject).replace(/\\/g, '/');
-    const line = `[HTML debug] id=${rowId} paso=${step} → ${fileProject} (${html.length} bytes) | también: ${relative}`;
-    // eslint-disable-next-line no-console
-    console.log(line);
-    this.appLogger.structured({
-      level: 'debug',
-      context: BrowserlessPuppeteerAdapter.name,
-      type: 'BROWSER',
-      status: 'OK',
-      message: 'Snapshot HTML (ENVIAR / jconfirm) en proyecto',
-      meta: {
-        rowId,
-        step,
-        fileProject,
-        relativeFromCwd: relative,
-        bytes: html.length,
-      },
-    });
-
-    if (options?.persistDetail !== false) {
-      await this.persistAutomationDetail(
-        rowId,
-        `Bot: snapshot HTML (${step}) → ${relative} (${html.length} bytes). Abrir en el IDE desde la raíz del proyecto v1/.`,
-      );
-    }
-    return fileProject;
-  }
-
   /** Solo dígitos (documento / teléfono apoderado). */
   private digitsOnly(value: string | undefined | null): string {
     return (value ?? '').replace(/\D+/g, '');
@@ -2091,15 +2042,9 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
       awaitingJconfirmConfirmarDatos = true;
       await delay(confirmarDatosPostEnviarDelayMs);
 
-      await this.writeHtmlDebugSnapshot(page, rowId, '01-tras-delay-post-ENVIAR-antes-esperar-jconfirm');
-
       await this.waitForJconfirmOpenConfirmarDatosAfterEnviar(page, rowId, confirmarDatosModalWaitMs);
       confirmarDatosModalOpened = true;
       awaitingJconfirmConfirmarDatos = false;
-
-      await this.writeHtmlDebugSnapshot(page, rowId, '02-jconfirm-confirmar-datos-detectado-antes-clic-No', {
-        persistDetail: false,
-      });
 
       const jconfirmSnapshot = await page.evaluate(() => {
         const notHidden = (el: HTMLElement) => {
@@ -2376,11 +2321,6 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
           rowId,
           `Bot: ENVIAR rechazado por validación del portal (no es «Confirmar Datos»): ${detalle.slice(0, 420)}`,
         );
-        try {
-          await this.writeHtmlDebugSnapshot(page, rowId, '03-FALLO-validacion-portal-pre-confirmar-datos');
-        } catch {
-          /* ignore */
-        }
         return {
           reachedArchivosAdjuntos: true,
           pdfDemandaAdjuntado: true,
@@ -2400,11 +2340,6 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
         const confirmarDatosModalWaitMs =
           Number(this.configService.get<string>('CONFIRMAR_DATOS_MODAL_WAIT_MS') ?? '15000') || 15000;
         const confirmarDatosModalWaitSeconds = Math.round(confirmarDatosModalWaitMs / 1000);
-        try {
-          await this.writeHtmlDebugSnapshot(page, rowId, '03-FALLO-timeout-sin-Confirmar-Datos');
-        } catch {
-          /* ignore */
-        }
         try {
           confirmarDatosModalDebug = await page.evaluate(() => {
             const visible = (el: HTMLElement) => {
@@ -2438,7 +2373,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
         const demasiadosContinuar = lower.includes('jconfirm_demasiados_pasos_continuar');
         await this.persistAutomationDetail(
           rowId,
-          `Bot: tras ENVIAR, no apareció a tiempo «Confirmar Datos»+Si/No (máx. ${confirmarDatosModalWaitSeconds}s). HTML fallo en logs/html-debug/ (ver detail anterior).${demasiadosContinuar ? ' Demasiados pasos CONTINUAR.' : ''}${debugSuffix}`.slice(
+          `Bot: tras ENVIAR, no apareció a tiempo «Confirmar Datos»+Si/No (máx. ${confirmarDatosModalWaitSeconds}s).${demasiadosContinuar ? ' Demasiados pasos CONTINUAR.' : ''}${debugSuffix}`.slice(
             0,
             480,
           ),

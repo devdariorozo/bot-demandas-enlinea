@@ -75,34 +75,41 @@ export class ManagementDemandsOnlineController {
   @ApiOperation({ summary: 'Listar todos los registros de gestión de demandas' })
   @ApiQuery({ name: 'start_date', required: false, type: String, description: 'Fecha inicial (YYYY-MM-DD).' })
   @ApiQuery({ name: 'end_date', required: false, type: String, description: 'Fecha final (YYYY-MM-DD).' })
+  @ApiQuery({ name: 'portfolio_type_id', required: false, type: Number, description: 'Filtrar por ID de cartera.' })
+  @ApiQuery({ name: 'name_data_base', required: false, type: String, description: 'Filtrar por nombre de base de datos.' })
+  @ApiQuery({ name: 'amount_type_id', required: false, type: Number, description: 'Filtrar por ID de tipo de cuantía.' })
+  @ApiQuery({ name: 'number_filed', required: false, type: String, description: 'Filtrar por número de radicación.' })
+  @ApiQuery({ name: 'management_status', required: false, type: String, description: 'Filtrar por estado de gestión (Abierta, En proceso, Registrada, Novedad).' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Número de página (>=1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Registros por página (>=1)' })
   async findAll(
     @Query('start_date') start_date?: string,
     @Query('end_date') end_date?: string,
+    @Query('portfolio_type_id') portfolio_type_id?: string,
+    @Query('name_data_base') name_data_base?: string,
+    @Query('amount_type_id') amount_type_id?: string,
+    @Query('number_filed') number_filed?: string,
+    @Query('management_status') management_status?: string,
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ): Promise<PaginatedResult<ManagementDemandsOnlineDto>> {
-    const all = await this.managementDemandsOnlineService.findAll();
-
     const parseDate = (value?: string): Date | undefined => {
       if (!value) return undefined;
       const d = new Date(value);
       return Number.isNaN(d.getTime()) ? undefined : d;
     };
 
-    const start = parseDate(start_date);
-    const end = parseDate(end_date);
-
-    const byDate = all.filter((item) => {
-      const created = (item as any).created_at ? new Date((item as any).created_at) : undefined;
-      if (!created || Number.isNaN(created.getTime())) return true;
-      if (start && created < start) return false;
-      if (end && created > end) return false;
-      return true;
+    const all = await this.managementDemandsOnlineService.findAll({
+      start_date: parseDate(start_date),
+      end_date: parseDate(end_date),
+      portfolio_type_id: portfolio_type_id !== undefined ? Number(portfolio_type_id) : undefined,
+      name_data_base: name_data_base || undefined,
+      amount_type_id: amount_type_id !== undefined ? Number(amount_type_id) : undefined,
+      number_filed: number_filed || undefined,
+      management_status: management_status || undefined,
     });
 
-    return paginateArray(byDate, page, limit);
+    return paginateArray(all, page, limit);
   }
 
   @Get(':id')

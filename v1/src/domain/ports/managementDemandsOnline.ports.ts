@@ -23,9 +23,19 @@ export type CreateManagementDemandsOnlineInput = Pick<
   Partial<Pick<ManagementDemandsOnline, 'user_id' | 'user_name' | 'management_status' | 'detail' | 'responsible'>> &
   Partial<ManagementDemandsOnline>;
 
+export interface FindAllManagementDemandsOnlineFilters {
+  portfolio_type_id?: number;
+  name_data_base?: string;
+  amount_type_id?: number;
+  number_filed?: string;
+  management_status?: string;
+  start_date?: Date;
+  end_date?: Date;
+}
+
 export interface ManagementDemandsOnlineRepository {
   create(input: CreateManagementDemandsOnlineInput): Promise<ManagementDemandsOnline>;
-  findAll(): Promise<ManagementDemandsOnline[]>;
+  findAll(filters?: FindAllManagementDemandsOnlineFilters): Promise<ManagementDemandsOnline[]>;
   findById(id: number): Promise<ManagementDemandsOnline>;
   /** Para evitar duplicados al sincronizar por job. */
   findByLawsuitCourtAssignmentsIdAndBase(
