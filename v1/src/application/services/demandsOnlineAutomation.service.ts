@@ -651,7 +651,7 @@ export class DemandsOnlineAutomationService {
         (lowerMsg.includes('localidad') && lowerMsg.includes('desconocida'))
       ) {
         fullDetail =
-          'No se encuentra la opción 00 - DESCONOCIDA / DUDOSA (41-03) predeterminada.';
+          'El portal muestra el select de Localidad pero no contiene ninguna de las opciones requeridas: "00 - DESCONOCIDA / DUDOSA" ni "Sin Localidad".';
       } else {
         fullDetail =
           'Error automatizando demanda en demandaenlinea. Revise los logs técnicos del bot para más detalle.';

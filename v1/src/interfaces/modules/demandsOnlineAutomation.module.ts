@@ -10,6 +10,7 @@ import { LoggerModule } from '@infrastructure/logging/logger.module';
 import { BROWSER_AUTOMATION_PORT } from '@domain/ports/browserAutomation.ports';
 import { DEMAND_PDF_PORT } from '@domain/ports/demandPdf.ports';
 import { BrowserlessPuppeteerAdapter } from '@infrastructure/browser/browserlessPuppeteer.adapter';
+import { BrowserlessHealthService } from '@infrastructure/browser/browserlessHealth.service';
 import { DemandPdfHttpAdapter } from '@infrastructure/http/demandPdfHttp.adapter';
 import { CompanyTypeModule } from './companyType.module';
 import { LawyerDataModule } from './lawyerData.module';
@@ -27,6 +28,7 @@ import { LawyerDataModule } from './lawyerData.module';
   ],
   providers: [
     DemandsOnlineAutomationService,
+    BrowserlessHealthService,
     DemandPdfHttpAdapter,
     { provide: DEMAND_PDF_PORT, useExisting: DemandPdfHttpAdapter },
     {

@@ -91,9 +91,31 @@ Si todas las condiciones se cumplen, se crea el registro en `management_demands_
 1. **Tomar demanda:** `findNextPending()` + `markInProcess()` — operación atómica con bloqueo pesimista; pasa `management_status` a `'En proceso'`.
 2. **Resolver datos** — cruces en la BD de cartera (ver apartado siguiente).
 3. **Automatizar portal** — delega a `BrowserlessPuppeteerAdapter.procesarLugarEnvioYEspecialidadYClase()`.
+
+   **Comportamiento del select de Localidad (`#DDlLocalidad`):**
+   | Escenario | Resultado |
+   |-----------|-----------|
+   | El select **no existe** en el portal | La ciudad no requiere localidad — el flujo continúa normalmente |
+   | El select **existe** y contiene `"00 - DESCONOCIDA / DUDOSA"` o `"Sin Localidad"` | Se selecciona la opción y el flujo continúa |
+   | El select **existe** pero **no contiene ninguna** de las dos opciones requeridas | El caso finaliza con `management_status = 'Novedad'` y el detail indica que el select existe pero no tiene ninguna de las opciones requeridas |
 4. **Finalizar:**
    - Éxito (`demandaRegistrada: true`): actualiza `management_demands_online` con `management_status = 'Registrada'` y `lawsuit_status = 'Presentada por aplicativo'`; luego sincroniza la BD de cartera (`UPDATE lawsuits SET path_law_doc, lawsuit_status, user_id, user_name WHERE id = lawsuit_id`).
    - Fallo parcial: `management_status = 'Novedad'` con el detalle del punto de falla.
+
+**Control de disponibilidad y cuota de Browserless (`BrowserlessHealthService`):**
+
+Antes de cada conexión WebSocket, el adaptador ejecuta un health-check HTTP contra el servicio Browserless:
+
+| Verificación | Resultado |
+|--------------|-----------|
+| Servicio no responde / timeout | Error `SERVICE_DOWN` — el caso queda en `Novedad` |
+| Token inválido (`401/403`) | Error `AUTH_ERROR` — revisar `BROWSERLESS_API_TOKEN` |
+| Cuota agotada (`402/429`) | Error `QUOTA_EXCEEDED` — revisar saldo en el dashboard |
+| Fallo al conectar WebSocket (Puppeteer) | Se clasifica el error (cuota, auth o servicio caído) y se loggea con tipo `BROWSERLESS_HEALTH` |
+| Cuota ≥ 75 % | `warn` en logs con tipo `BROWSERLESS_QUOTA` |
+| Cuota ≥ 90 % | `warn` crítico: riesgo inminente de quedar sin saldo |
+
+Todos los eventos quedan registrados en el log diario con `type: BROWSERLESS_HEALTH` o `BROWSERLESS_QUOTA`.
 
 `BotControlService` valida en cada ciclo:
 - `attention_schedule`: horarios activos por cartera; verifica día de la semana y tramo horario (con receso incluido).

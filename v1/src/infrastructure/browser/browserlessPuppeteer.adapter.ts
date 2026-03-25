@@ -16,6 +16,7 @@ import {
   ManagementDemandsOnlineRepository,
 } from '@domain/ports/managementDemandsOnline.ports';
 import { AppLogger } from '@infrastructure/logging/appLogger.service';
+import { BrowserlessHealthService } from '@infrastructure/browser/browserlessHealth.service';
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -26,6 +27,7 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
   constructor(
     private readonly configService: ConfigService,
     private readonly appLogger: AppLogger,
+    private readonly browserlessHealth: BrowserlessHealthService,
     @Inject(MANAGEMENT_DEMANDS_ONLINE_REPOSITORY)
     private readonly managementDemandsOnlineRepository: ManagementDemandsOnlineRepository,
     @Inject(DEMAND_PDF_PORT)
@@ -341,6 +343,20 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
       );
     }
 
+    // Health-check: verifica disponibilidad del servicio y emite warnings de cuota
+    const health = await this.browserlessHealth.checkHealth();
+    if (!health.ok) {
+      this.appLogger.structured({
+        level: 'error',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSERLESS_HEALTH',
+        status: 'Error',
+        message: `Browserless no disponible antes de conectar — razón: ${health.reason}. ${health.message}`,
+        meta: { reason: health.reason },
+      });
+      throw new Error(`[BROWSERLESS_${health.reason}] ${health.message}`);
+    }
+
     const token = tokenRaw.replace(/^['"]|['"]$/g, '');
     const wsBase = endpoint.replace(/^http/i, 'ws');
     const browserWSEndpoint = `${wsBase}?token=${encodeURIComponent(
@@ -356,10 +372,24 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
       meta: { browserWSEndpoint: wsBase },
     });
 
-    return puppeteer.connect({
-      browserWSEndpoint,
-      defaultViewport: { width: 1366, height: 768 },
-    });
+    try {
+      return await puppeteer.connect({
+        browserWSEndpoint,
+        defaultViewport: { width: 1366, height: 768 },
+      });
+    } catch (connErr) {
+      const error = connErr instanceof Error ? connErr : new Error(String(connErr));
+      const { reason, userMessage } = this.browserlessHealth.classifyConnectionError(error);
+      this.appLogger.structured({
+        level: 'error',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'BROWSERLESS_HEALTH',
+        status: 'Error',
+        message: `Browserless: fallo al establecer conexión WebSocket — ${userMessage}`,
+        meta: { reason, originalError: error.message, wsBase },
+      });
+      throw new Error(`[BROWSERLESS_${reason}] ${userMessage}`);
+    }
   }
 
   private async navigateAndAcceptModal(page: Page): Promise<void> {
@@ -1442,60 +1472,68 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
       );
     }
 
-    // 7) Localidad = 00 - DESCONOCIDA / DUDOSA (41-03). Obligatorio para cerrar el flujo del Demandado;
-    // si el portal no ofrece el select o la opción predeterminada, se marca Novedad en el servicio (no se continúa).
-    await page.waitForSelector('#DDlLocalidad', { timeout: 15000 });
-    await page.waitForFunction(
-      () => {
+    // 7) Localidad: solo aplica si el portal muestra el select #DDlLocalidad.
+    // - Si el select NO existe → la ciudad no requiere localidad, el flujo continúa normalmente.
+    // - Si el select SÍ existe → debe tener "00 - DESCONOCIDA / DUDOSA" o "Sin Localidad".
+    //   Si ninguna está presente → Novedad (el servicio lo captura y detiene el flujo).
+    const localidadSelectPresente = await page
+      .waitForSelector('#DDlLocalidad', { timeout: 8000 })
+      .then(() => true)
+      .catch(() => false);
+
+    if (!localidadSelectPresente) {
+      this.appLogger.structured({
+        level: 'log',
+        context: BrowserlessPuppeteerAdapter.name,
+        type: 'AUTOMATION',
+        status: 'Info',
+        message: 'Bot: select de Localidad no presente en el portal para esta ciudad — paso omitido, flujo continúa',
+        meta: { demandaId: rowId },
+      });
+    } else {
+      // Esperar a que el select se pueble
+      await page
+        .waitForFunction(
+          () => {
+            const s = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
+            return !s || Array.from(s.options).length > 1;
+          },
+          { timeout: 8000 },
+        )
+        .catch(() => {/* si no se puebla, evaluamos con lo que haya */});
+
+      const localidadResult = await page.evaluate(() => {
         const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
-        if (!select) return false;
-        const options = Array.from(select.options);
-        return options.length > 1;
-      },
-      { timeout: 15000 },
-    );
+        if (!select) {
+          return { ok: true, skipped: true };
+        }
+        const normalize = (v: string) =>
+          v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toUpperCase();
+        const items = Array.from(select.options)
+          .filter((o) => o.textContent?.trim())
+          .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
 
-    const localidadResult = await page.evaluate(() => {
-      const select = document.querySelector<HTMLSelectElement>('#DDlLocalidad');
-      if (!select) {
-        return { ok: false, skipped: false, error: 'No se encontró el select de Localidad (DDlLocalidad)' };
+        const candidate =
+          items.find((i) => i.option.value === '1476') ??
+          items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
+          items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA')) ??
+          items.find((i) => i.option.value === '0') ??
+          items.find((i) => i.norm === 'SIN LOCALIDAD');
+
+        if (!candidate) {
+          return { ok: false, skipped: false };
+        }
+
+        select.value = candidate.option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        return { ok: true, skipped: false, selected: candidate.option.textContent?.trim() };
+      });
+
+      if (!localidadResult.ok) {
+        throw new Error(
+          `LOCALIDAD_PREDETERMINADA_NO_ENCONTRADA: El select de Localidad existe pero no contiene ninguna de las opciones requeridas ("00 - DESCONOCIDA / DUDOSA" o "Sin Localidad").`,
+        );
       }
-      const normalize = (value: string) =>
-        value
-          .normalize('NFD')
-          .replace(/[\u0300-\u036f]/g, '')
-          .trim()
-          .toUpperCase();
-      const items = Array.from(select.options)
-        .filter((o) => o.textContent && o.textContent.trim().length > 0)
-        .map((o) => ({ option: o, norm: normalize(o.textContent as string) }));
-
-      // 1ª prioridad: 00 - DESCONOCIDA / DUDOSA (41-03)
-      const candidate =
-        items.find((i) => i.option.value === '1476') ??
-        items.find((i) => i.norm.startsWith('00 - DESCONOCIDA')) ??
-        items.find((i) => i.norm.includes('DESCONOCIDA / DUDOSA')) ??
-        // 2ª prioridad: Sin Localidad (value=0)
-        items.find((i) => i.option.value === '0') ??
-        items.find((i) => i.norm === 'SIN LOCALIDAD');
-
-      if (!candidate) {
-        return {
-          ok: false,
-          skipped: false,
-          error: 'Localidad no disponible: no se encontró "00 - DESCONOCIDA / DUDOSA" ni "Sin Localidad" en el select.',
-        };
-      }
-
-      select.value = candidate.option.value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      return { ok: true, skipped: false, selected: candidate.option.textContent?.trim() };
-    });
-
-    if (!localidadResult.ok) {
-      throw new Error(
-        `LOCALIDAD_PREDETERMINADA_NO_ENCONTRADA: ${localidadResult.error ?? 'Opción de localidad no disponible en el portal'}`,
-      );
     }
 
     await this.persistAutomationDetail(rowId, 'Bot: demandado — dirección, teléfono y agregar');
