@@ -58,6 +58,37 @@ src/
 
 `DemandsPendingSyncService` corre en intervalo configurable (`DEMANDS_PENDING_SYNC_INTERVAL_MINUTES`, por defecto 30 min) y también al arrancar. Solo opera si el bot está iniciado y dentro de horario laboral.
 
+### Modo de ejecución (`DEMANDS_PENDING_SYNC_MANUAL`)
+
+El servicio soporta dos modos de operación controlados por la variable `DEMANDS_PENDING_SYNC_MANUAL`:
+
+| Valor | Modo | Comportamiento |
+|-------|------|----------------|
+| `false` | **Automático** | Consulta todas las BDs de cartera activas en el intervalo configurado y registra todas las demandas que cumplan los filtros. Es el modo normal de producción. |
+| `true` | **Manual** | Procesa únicamente la demanda indicada por `LAWSUIT_ID` del cliente `CLIENT_ID`. Útil para depuración, pruebas o registrar un caso puntual sin esperar el ciclo completo. |
+
+**Variables del job:**
+
+```env
+# Intervalo de consulta automática (minutos)
+DEMANDS_PENDING_SYNC_INTERVAL_MINUTES=30
+
+# Monto mínimo de la demanda para ser procesada
+DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT=1000000
+
+# Estados de la tabla dues válidos para sincronizar (separados por comas)
+DEMANDS_PENDING_SYNC_DUES_STATE=186,195
+
+# Tipo de ejecución: true = manual, false = automático
+DEMANDS_PENDING_SYNC_MANUAL=false
+
+# Solo requeridos cuando DEMANDS_PENDING_SYNC_MANUAL=true
+CLIENT_ID=53330
+LAWSUIT_ID=1601
+```
+
+> **Nota:** `CLIENT_ID` y `LAWSUIT_ID` son ignorados cuando `DEMANDS_PENDING_SYNC_MANUAL=false`.
+
 **Condiciones que debe cumplir una demanda para registrarse en `management_demands_online`:**
 
 1. Existe en `lawsuits` con `lawsuit_status = 'Pendiente'` y `deleted_at IS NULL`.
@@ -68,15 +99,32 @@ src/
 **Cruce de tablas (BD de cartera):**
 
 ```sql
-SELECT l.id AS lawsuit_id, l.client_id, l.path_law_doc, l.lawsuit_status,
-       l.type_quantity, l.campaign_id,
-       lca.id AS lawsuit_court_assignments_id, lca.client_id, lca.city_id
+SELECT DISTINCT
+  l.id                          AS lawsuit_id,
+  l.client_id                   AS lawsuit_client_id,
+  l.path_law_doc,
+  l.lawsuit_status,
+  l.type_quantity,
+  l.campaign_id,
+  lca.id                        AS lawsuit_court_assignments_id,
+  lca.client_id                 AS assignment_client_id,
+  lca.city_id
 FROM `{name_data_base}`.lawsuits l
-INNER JOIN `{name_data_base}`.lawsuit_court_assignments lca ON lca.lawsuit_id = l.id
+INNER JOIN `{name_data_base}`.lawsuit_court_assignments lca
+  ON lca.lawsuit_id = l.id
+INNER JOIN `{name_data_base}`.dues d
+  ON d.client_id = l.client_id
 WHERE l.lawsuit_status = 'Pendiente'
   AND l.deleted_at IS NULL
   AND lca.city_id IN ({ids de ciudades configuradas en portfolio_city_config})
+  AND d.current_capital_balance >= {DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT}
+  AND d.state IN ({DEMANDS_PENDING_SYNC_DUES_STATE})
+  -- Solo cuando DEMANDS_PENDING_SYNC_MANUAL=true:
+  AND l.client_id = {CLIENT_ID}
+  AND l.id       = {LAWSUIT_ID}
 ```
+
+> El JOIN con `dues` garantiza que solo se sincronizan demandas cuyo cliente tenga saldo de capital activo (`current_capital_balance`) por encima del mínimo configurado y en uno de los estados de cuota válidos. Los filtros manuales (`l.client_id` / `l.id`) se agregan únicamente cuando `DEMANDS_PENDING_SYNC_MANUAL=true`.
 
 Si todas las condiciones se cumplen, se crea el registro en `management_demands_online` con `management_status = 'Abierta'`.
 
@@ -359,6 +407,14 @@ DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY=sk_...
 AUTOMATION_IDLE_SLEEP_SEC=15
 AUTOMATION_BETWEEN_DEMANDS_SEC=2
 AUTOMATION_STANDBY_SLEEP_SEC=60
+
+# Job: sincronización de demandas pendientes
+DEMANDS_PENDING_SYNC_INTERVAL_MINUTES=30
+DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT=1000000
+DEMANDS_PENDING_SYNC_DUES_STATE=186,195
+DEMANDS_PENDING_SYNC_MANUAL=false
+# CLIENT_ID=53330      # Solo si DEMANDS_PENDING_SYNC_MANUAL=true
+# LAWSUIT_ID=1601      # Solo si DEMANDS_PENDING_SYNC_MANUAL=true
 ```
 
 Ver `.env.example` para el listado completo.
