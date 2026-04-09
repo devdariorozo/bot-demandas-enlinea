@@ -77,6 +77,8 @@ export interface ProcesarLugarEnvioResult {
   confirmarDatosSiClicked?: boolean;
   /** Acción concreta tomada en el modal de confirmación: 'SI' o 'NO'. */
   confirmarDatosAction?: 'SI' | 'NO';
+  /** Número de radicado asignado por el portal tras confirmar con SI (ej. '1636923'). */
+  numberFiled?: string;
   /** Código corto de la falla para armar mensajes finales coherentes. */
   failureStage?:
     | 'recaptcha'
@@ -88,6 +90,12 @@ export interface ProcesarLugarEnvioResult {
     | 'pdf_generate'
     | 'pdf_download'
     | 'pdf_attach'
+    /** No se encontró el botón Si en el modal «Confirmar Datos» (producción). */
+    | 'confirmar_datos_si'
+    /** No apareció o no se pudo confirmar el modal de doble confirmación («¿Está seguro?»). */
+    | 'doble_confirmacion'
+    /** No apareció el modal Finalizar con el radicado, o no se encontró el botón Finalizar. */
+    | 'finalizar'
     | 'unknown';
 }
 

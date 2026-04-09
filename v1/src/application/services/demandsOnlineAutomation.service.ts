@@ -450,6 +450,7 @@ export class DemandsOnlineAutomationService {
         confirmarDatosNoClicked,
         confirmarDatosSiClicked,
         confirmarDatosAction,
+        numberFiled,
         failureStage,
       } = await this.browserAutomationPort.procesarLugarEnvioYEspecialidadYClase({
           demanda,
@@ -482,6 +483,7 @@ export class DemandsOnlineAutomationService {
           ...refreshedDemanda,
           lawsuit_status: 'Presentada por aplicativo',
           management_status: 'Registrada',
+          number_filed: numberFiled ?? '-',
           detail: detailFinal,
           updated_at: new Date(),
         });
@@ -558,6 +560,18 @@ export class DemandsOnlineAutomationService {
           ) {
             detailFinal =
               'Bot: ENVIAR ejecutado, pero no se detectó el div.jconfirm-open con «Confirmar Datos». Revise el portal y continúe manualmente.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'confirmar_datos_si') {
+            detailFinal =
+              'Bot: modal «Confirmar Datos» abierto pero no se encontró el botón Si. Revise el portal.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'doble_confirmacion') {
+            detailFinal =
+              'Bot: fallo en doble confirmación («¿Está seguro?»): modal no apareció o no se encontró el botón Si. Revise el portal.';
+            managementStatusFinal = 'Novedad';
+          } else if (failureStage === 'finalizar') {
+            detailFinal =
+              'Bot: fallo al obtener radicado — modal Finalizar no apareció o no se encontró el botón. Confirme el número de radicado manualmente en el portal.';
             managementStatusFinal = 'Novedad';
           } else if (confirmarDatosNoClicked === true) {
             // Normalmente esto debería ir por la rama demandaRegistrada === true,

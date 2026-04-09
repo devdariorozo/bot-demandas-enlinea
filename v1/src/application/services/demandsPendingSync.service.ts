@@ -287,26 +287,87 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
   }
 
   /**
-   * Consulta lawsuits primero (solo Pendiente y sin deleted_at) y cruza con
-   * lawsuit_court_assignments por lawsuit_id, filtrando únicamente por city_id
-   * incluidos en idCityViews.
+   * Consulta lawsuits (solo Pendiente y sin deleted_at) cruzada con lawsuit_court_assignments
+   * y dues (por client_id), aplicando filtros de monto mínimo y estado de cuota.
+   *
+   * Condiciones fijas:
+   *   - l.lawsuit_status = 'Pendiente'
+   *   - l.deleted_at IS NULL
+   *   - lca.city_id IN (idCityViews)
+   *   - d.current_capital_balance > DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT
+   *   - d.state IN (DEMANDS_PENDING_SYNC_DUES_STATE)
+   *
+   * Modo automático (DEMANDS_PENDING_SYNC_MANUAL=false o no definida):
+   *   Retorna todas las demandas que cumplen las condiciones anteriores.
+   *
+   * Modo manual (DEMANDS_PENDING_SYNC_MANUAL=true):
+   *   Además restringe por CLIENT_ID y LAWSUIT_ID del .env.
    */
   private async fetchPendingLawSuitsWithAssignments(
     baseName: string,
     idCityViews: number[],
   ): Promise<Record<string, unknown>[]> {
     if (idCityViews.length === 0) return [];
-    const placeholders = idCityViews.map(() => '?').join(',');
+
+    // --- Parámetros de ciudad ---
+    const cityPlaceholders = idCityViews.map(() => '?').join(',');
+
+    // --- Monto mínimo (DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT) ---
+    const minimumAmount =
+      Number(this.configService.get<string>('DEMANDS_PENDING_SYNC_MINIMUM_AMOUNT', '0')) || 0;
+
+    // --- Estados de dues (DEMANDS_PENDING_SYNC_DUES_STATE, ej. "186,195") ---
+    const duesStatesRaw = this.configService.get<string>('DEMANDS_PENDING_SYNC_DUES_STATE', '');
+    const duesStates = duesStatesRaw
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => !isNaN(n) && n > 0);
+    const statePlaceholders = duesStates.length > 0 ? duesStates.map(() => '?').join(',') : null;
+
+    // --- Modo manual: filtros adicionales por CLIENT_ID / LAWSUIT_ID ---
+    const isManual =
+      this.configService.get<string>('DEMANDS_PENDING_SYNC_MANUAL', 'false').trim().toLowerCase() === 'true';
+    let extraWhere = '';
+    const extraParams: number[] = [];
+    if (isManual) {
+      const clientId = this.configService.get<string>('CLIENT_ID', '');
+      const lawsuitId = this.configService.get<string>('LAWSUIT_ID', '');
+      if (clientId && !isNaN(Number(clientId))) {
+        extraWhere += `\n        AND l.client_id = ?`;
+        extraParams.push(Number(clientId));
+      }
+      if (lawsuitId && !isNaN(Number(lawsuitId))) {
+        extraWhere += `\n        AND l.id = ?`;
+        extraParams.push(Number(lawsuitId));
+      }
+    }
+
+    // Orden de parámetros: ciudades → monto mínimo → estados dues → filtros manuales.
+    const queryParams: number[] = [
+      ...idCityViews,
+      minimumAmount,
+      ...(duesStates.length > 0 ? duesStates : []),
+      ...extraParams,
+    ];
+
+    const duesStateCondition = statePlaceholders
+      ? `\n        AND d.state IN (${statePlaceholders})`
+      : '';
+
     const fromJoin = `
       FROM \`${baseName}\`.lawsuits l
       INNER JOIN \`${baseName}\`.lawsuit_court_assignments lca
         ON lca.lawsuit_id = l.id
+      INNER JOIN \`${baseName}\`.dues d
+        ON d.client_id = l.client_id
       WHERE l.lawsuit_status = 'Pendiente'
         AND l.deleted_at IS NULL
-        AND lca.city_id IN (${placeholders})
+        AND lca.city_id IN (${cityPlaceholders})
+        AND d.current_capital_balance >= ?${duesStateCondition}${extraWhere}
     `;
+
     const sqlWithPath = `
-      SELECT
+      SELECT DISTINCT
         l.id AS lawsuit_id,
         l.client_id AS lawsuit_client_id,
         l.path_law_doc,
@@ -321,7 +382,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
       ${fromJoin}
     `;
     const sqlWithoutPath = `
-      SELECT
+      SELECT DISTINCT
         l.id AS lawsuit_id,
         l.client_id AS lawsuit_client_id,
         l.lawsuit_status,
@@ -335,14 +396,14 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
       ${fromJoin}
     `;
     try {
-      return await this.dataBasesRepository.runQueryOnBase(baseName, sqlWithPath, idCityViews);
+      return await this.dataBasesRepository.runQueryOnBase(baseName, sqlWithPath, queryParams);
     } catch (err) {
       const msg = String((err as Error)?.message ?? '');
       if (!/path_law_doc|Unknown column/i.test(msg)) throw err;
       const rows = await this.dataBasesRepository.runQueryOnBase(
         baseName,
         sqlWithoutPath,
-        idCityViews,
+        queryParams,
       );
       return rows.map((r) => ({ ...r, path_law_doc: '' }));
     }

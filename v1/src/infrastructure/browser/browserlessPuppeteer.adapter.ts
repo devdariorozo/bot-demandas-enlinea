@@ -2141,11 +2141,86 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
         });
       }
 
+      // /**
+      //  * MODO 1 (actual, por defecto) — ENVÍO SIMULADO:
+      //  *   - Clic en "No". El clic en "Si" (envío real al portal) va comentado abajo.
+      //  */
+      // const clicNo = await page.evaluate(() => {
+      //   const notHidden = (el: HTMLElement) => {
+      //     const s = window.getComputedStyle(el);
+      //     return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+      //   };
+      //   const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
+      //   for (const root of roots) {
+      //     const titleSpan = root.querySelector<HTMLElement>('span.jconfirm-title');
+      //     const titleText = (titleSpan?.textContent ?? '').trim();
+      //     if (!/confirmar\s+datos/i.test(titleText)) continue;
+      //     const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+      //     if (!wrap) continue;
+      //     const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+      //     const noBtn = btns.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+      //     if (!noBtn) continue;
+      //     noBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+      //     noBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+      //     noBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      //     return true;
+      //   }
+      //   return false;
+      // });
+
+      // if (!clicNo) {
+      //   await this.persistAutomationDetail(
+      //     rowId,
+      //     'Bot: div.jconfirm-open con «Confirmar Datos» visible, pero no se encontró el botón No en .jconfirm-buttons.',
+      //   );
+      //   throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_JCONFIRM_CONFIRMAR_DATOS');
+      // }
+
+      // await delay(500);
+
+      // // Esperamos a que el div jconfirm-open deje de mostrar «Confirmar Datos» (cierre del overlay).
+      // try {
+      //   await page.waitForFunction(
+      //     () => {
+      //       const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open'));
+      //       return !roots.some((root) => {
+      //         const span = root.querySelector<HTMLElement>('span.jconfirm-title');
+      //         return span && /confirmar\s+datos/i.test((span.textContent || '').trim());
+      //       });
+      //     },
+      //     { timeout: 3000, polling: 100 },
+      //   );
+      // } catch {
+      //   // ignore (el overlay a veces tarda en cerrarse)
+      // }
+
+      // await this.persistAutomationDetail(
+      //   rowId,
+      //   'Bot: clic en NO ejecutado (simulación).',
+      // );
+
+      // confirmarDatosNoClicked = true;
+      // confirmarDatosAction = 'NO';
+      // return {
+      //   reachedArchivosAdjuntos: true,
+      //   pdfDemandaAdjuntado: true,
+      //   demandaRegistrada: true,
+      //   captchaResolved,
+      //   enviarClicked,
+      //   confirmarDatosModalOpened,
+      //   confirmarDatosNoClicked,
+      //   confirmarDatosSiClicked,
+      //   confirmarDatosAction,
+      // };
+
       /**
-       * MODO 1 (actual, por defecto) — ENVÍO SIMULADO:
-       *   - Clic en "No". El clic en "Si" (envío real al portal) va comentado abajo.
+       * MODO 2 (producción) — ENVÍO REAL:
+       *   Clic en "Si", espera del modal de radicado y clic en "Finalizar".
+       *   El MODO 1 (clic en "No", simulación) queda comentado arriba como referencia.
        */
-      const clicNo = await page.evaluate(() => {
+
+      // CLIC REAL EN "SI" — busca el modal «Confirmar Datos» activo y dispara click en el botón Si.
+      const clicSi = await page.evaluate(() => {
         const notHidden = (el: HTMLElement) => {
           const s = window.getComputedStyle(el);
           return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
@@ -2158,49 +2233,184 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
           const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
           if (!wrap) continue;
           const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
-          const noBtn = btns.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
-          if (!noBtn) continue;
-          noBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-          noBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-          noBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          const siBtn = btns.find((b) => /^si$/i.test((b.innerText || b.textContent || '').trim()));
+          if (!siBtn) continue;
+          siBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          siBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          siBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
           return true;
         }
         return false;
       });
 
-      if (!clicNo) {
+      if (!clicSi) {
         await this.persistAutomationDetail(
           rowId,
-          'Bot: div.jconfirm-open con «Confirmar Datos» visible, pero no se encontró el botón No en .jconfirm-buttons.',
+          'Bot: div.jconfirm-open con «Confirmar Datos» visible, pero no se encontró el botón Si en .jconfirm-buttons.',
         );
-        throw new Error('NO_SE_ENCONTRO_BOTON_NO_EN_JCONFIRM_CONFIRMAR_DATOS');
+        throw new Error('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_CONFIRMAR_DATOS');
       }
 
-      await delay(500);
+      confirmarDatosSiClicked = true;
+      confirmarDatosAction = 'SI';
+      confirmarDatosNoClicked = false;
 
-      // Esperamos a que el div jconfirm-open deje de mostrar «Confirmar Datos» (cierre del overlay).
-      try {
-        await page.waitForFunction(
-          () => {
-            const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open'));
-            return !roots.some((root) => {
-              const span = root.querySelector<HTMLElement>('span.jconfirm-title');
-              return span && /confirmar\s+datos/i.test((span.textContent || '').trim());
-            });
-          },
-          { timeout: 3000, polling: 100 },
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: clic en SI (Confirmar Datos) ejecutado. Esperando modal de doble confirmación...',
+      );
+
+      // Espera el modal de doble confirmación («¿Está seguro que desea continuar?») — 1.5 s es suficiente.
+      await delay(1500);
+      const dobleConfirmacionFound = await page.evaluate(() => {
+        const notHidden = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+        };
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
+        for (const root of roots) {
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          if (!wrap) continue;
+          const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+          const tieneBotonSi = btns.some((b) => /^si$/i.test((b.innerText || b.textContent || '').trim()));
+          const tieneBotonNo = btns.some((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+          if (tieneBotonSi && tieneBotonNo) return true;
+        }
+        return false;
+      });
+
+      if (!dobleConfirmacionFound) {
+        await this.persistAutomationDetail(
+          rowId,
+          'Bot: tras clic en SI (Confirmar Datos) no apareció el modal de doble confirmación.',
         );
-      } catch {
-        // ignore (el overlay a veces tarda en cerrarse)
+        throw new Error('DOBLE_CONFIRMACION_MODAL_NO_APARECIO_TRAS_CLIC_SI');
       }
 
       await this.persistAutomationDetail(
         rowId,
-        'Bot: clic en NO ejecutado (simulación).',
+        'Bot: modal de doble confirmación detectado. Dando clic en Si...',
       );
 
-      confirmarDatosNoClicked = true;
-      confirmarDatosAction = 'NO';
+      // CLIC EN "SI" del modal de doble confirmación.
+      const clicSiDobleConfirmacion = await page.evaluate(() => {
+        const notHidden = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+        };
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
+        for (const root of roots) {
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          if (!wrap) continue;
+          const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+          const siBtn = btns.find((b) => /^si$/i.test((b.innerText || b.textContent || '').trim()));
+          const noBtn = btns.find((b) => /^no$/i.test((b.innerText || b.textContent || '').trim()));
+          if (!siBtn || !noBtn) continue;
+          siBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          siBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          siBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return true;
+        }
+        return false;
+      });
+
+      if (!clicSiDobleConfirmacion) {
+        await this.persistAutomationDetail(
+          rowId,
+          'Bot: modal de doble confirmación visible pero no se encontró el botón Si en .jconfirm-buttons.',
+        );
+        throw new Error('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_DOBLE_CONFIRMACION');
+      }
+
+      await this.persistAutomationDetail(
+        rowId,
+        'Bot: clic en SI (doble confirmación) ejecutado. Esperando modal de número de radicado...',
+      );
+
+      // Espera el modal con botón «Finalizar» — polling cada 1 s, máximo 10 intentos.
+      let finalizarModalFound = false;
+      let numberFiled: string | undefined;
+
+      for (let i = 0; i < 10; i++) {
+        await delay(1000);
+        const finalizarCheck = await page.evaluate(() => {
+          const notHidden = (el: HTMLElement) => {
+            const s = window.getComputedStyle(el);
+            return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+          };
+          const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
+          for (const root of roots) {
+            const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+            if (!wrap) continue;
+            const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+            const finalizarBtn = btns.find(
+              (b) => /^finalizar$/i.test((b.innerText || b.textContent || '').trim()),
+            );
+            if (!finalizarBtn) continue;
+            const contentDiv = root.querySelector<HTMLElement>('.jconfirm-content');
+            const contentText = contentDiv?.textContent ?? '';
+            const match = contentText.match(/(\d{5,})/);
+            return { found: true, number: match ? match[1] : undefined };
+          }
+          return { found: false, number: undefined };
+        });
+
+        if (finalizarCheck.found) {
+          finalizarModalFound = true;
+          numberFiled = finalizarCheck.number;
+          break;
+        }
+      }
+
+      if (!finalizarModalFound) {
+        await this.persistAutomationDetail(
+          rowId,
+          'Bot: tras clic en SI no apareció el modal con botón Finalizar en 10 segundos.',
+        );
+        throw new Error('FINALIZAR_MODAL_NO_APARECIO_TRAS_CLIC_SI');
+      }
+
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: modal Finalizar detectado. Número radicado: ${numberFiled ?? 'no detectado'}. Dando clic en Finalizar...`,
+      );
+
+      // CLIC EN "FINALIZAR"
+      const clicFinalizar = await page.evaluate(() => {
+        const notHidden = (el: HTMLElement) => {
+          const s = window.getComputedStyle(el);
+          return s.display !== 'none' && s.visibility !== 'hidden' && s.opacity !== '0';
+        };
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.jconfirm-open')).filter(notHidden);
+        for (const root of roots) {
+          const wrap = root.querySelector<HTMLElement>('.jconfirm-buttons');
+          if (!wrap) continue;
+          const btns = Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'));
+          const finalizarBtn = btns.find(
+            (b) => /^finalizar$/i.test((b.innerText || b.textContent || '').trim()),
+          );
+          if (!finalizarBtn) continue;
+          finalizarBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          finalizarBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          finalizarBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+          return true;
+        }
+        return false;
+      });
+
+      if (!clicFinalizar) {
+        await this.persistAutomationDetail(
+          rowId,
+          'Bot: modal Finalizar visible pero no se encontró el botón Finalizar en .jconfirm-buttons.',
+        );
+        throw new Error('NO_SE_ENCONTRO_BOTON_FINALIZAR_EN_MODAL_RADICADO');
+      }
+
+      await this.persistAutomationDetail(
+        rowId,
+        `Bot: clic en Finalizar ejecutado. Número radicado: ${numberFiled ?? '-'}. Flujo completado.`,
+      );
+
       return {
         reachedArchivosAdjuntos: true,
         pdfDemandaAdjuntado: true,
@@ -2211,49 +2421,10 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
         confirmarDatosNoClicked,
         confirmarDatosSiClicked,
         confirmarDatosAction,
+        numberFiled,
       };
 
-      /**
-       * MODO 2 (futuro, producción) — ENVÍO REAL:
-       *   - Comentar el bloque SIMULADO anterior.
-       *   - Descomentar el bloque siguiente para hacer clic real en "Si".
-       *   - Si algo falla (no se encuentra el botón, error de DOM, etc.), se lanza
-       *     un error y se manejará en el catch general, devolviendo demandaRegistrada = false.
-       *
-       * // ENVÍO REAL (descomentar para producción):
-       * //
-       * // const siBtnHandle = await page.evaluateHandle(() => {
-       * //   const root = document.querySelector<HTMLElement>('.jconfirm-open');
-       * //   const wrap = root?.querySelector<HTMLElement>('.jconfirm-buttons');
-       * //   const buttons = wrap
-       * //     ? Array.from(wrap.querySelectorAll<HTMLButtonElement>('button, .btn'))
-       * //     : [];
-       * //   return buttons.find((b) => /^si$/i.test((b.innerText || b.textContent || '').trim())) ?? null;
-       * // });
-       * // const siEl = siBtnHandle.asElement();
-       * // if (!siEl) {
-       * //   throw new Error('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_CONFIRMAR_DATOS');
-       * // }
-       * //
-       * // // CLICK REAL EN "SI"
-       * // await (siEl as unknown as HTMLElement).click();
-       * // confirmarDatosSiClicked = true;
-       * // confirmarDatosAction = 'SI';
-       * // confirmarDatosNoClicked = false;
-       * // await delay(1000);
-       * //
-       * // return {
-       * //   reachedArchivosAdjuntos: true,
-       * //   pdfDemandaAdjuntado: true,
-       * //   demandaRegistrada: true,
-       * //   captchaResolved,
-       * //   enviarClicked,
-       * //   confirmarDatosModalOpened,
-       * //   confirmarDatosNoClicked,
-       * //   confirmarDatosSiClicked,
-       * //   confirmarDatosAction,
-       * // };
-       */
+
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       const lower = msg.toLowerCase();
@@ -2389,6 +2560,84 @@ export class BrowserlessPuppeteerAdapter implements BrowserAutomationPort, OnMod
           confirmarDatosSiClicked: false,
           confirmarDatosAction: undefined,
           failureStage: 'jconfirm_confirmar_datos_timeout',
+        };
+      }
+
+      // Fallo al hacer clic en Si del modal «Confirmar Datos» (producción).
+      if (msg.includes('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_CONFIRMAR_DATOS')) {
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'No se encontró botón Si en modal Confirmar Datos',
+          meta: { rowId },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked,
+          confirmarDatosModalOpened,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked: false,
+          confirmarDatosAction: undefined,
+          failureStage: 'confirmar_datos_si',
+        };
+      }
+
+      // Fallo en el modal de doble confirmación («¿Está seguro?»).
+      if (
+        msg.includes('DOBLE_CONFIRMACION_MODAL_NO_APARECIO_TRAS_CLIC_SI') ||
+        msg.includes('NO_SE_ENCONTRO_BOTON_SI_EN_MODAL_DOBLE_CONFIRMACION')
+      ) {
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'Fallo en modal de doble confirmación',
+          meta: { rowId, error: msg },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked,
+          confirmarDatosModalOpened,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked,
+          confirmarDatosAction,
+          failureStage: 'doble_confirmacion',
+        };
+      }
+
+      // Fallo en el modal Finalizar (timeout o botón no encontrado).
+      if (
+        msg.includes('FINALIZAR_MODAL_NO_APARECIO_TRAS_CLIC_SI') ||
+        msg.includes('NO_SE_ENCONTRO_BOTON_FINALIZAR_EN_MODAL_RADICADO')
+      ) {
+        this.appLogger.structured({
+          level: 'warn',
+          context: BrowserlessPuppeteerAdapter.name,
+          type: 'BROWSER',
+          status: 'WARN',
+          message: 'Fallo en modal Finalizar (radicado)',
+          meta: { rowId, error: msg },
+        });
+        return {
+          reachedArchivosAdjuntos: true,
+          pdfDemandaAdjuntado: true,
+          demandaRegistrada: false,
+          captchaResolved,
+          enviarClicked,
+          confirmarDatosModalOpened,
+          confirmarDatosNoClicked: false,
+          confirmarDatosSiClicked,
+          confirmarDatosAction,
+          failureStage: 'finalizar',
         };
       }
 
