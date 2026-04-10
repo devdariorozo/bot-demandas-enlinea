@@ -1,7 +1,23 @@
 // Responsabilidad: modelos de datos de entrada/salida para HTTP.
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsArray, IsDate, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsDate, IsNotEmpty, IsNumber, IsObject, IsOptional, IsString } from 'class-validator';
+import { BasesConfig } from '@domain/entities/dataBases.entities';
+
+const basesExample: BasesConfig = {
+  dev_db_1: {
+    generate_pdf_demand_service: {
+      url: 'https://example.groupcos.com/api/v1',
+      api_key: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89',
+    },
+  },
+  dev_db_2: {
+    generate_pdf_demand_service: {
+      url: 'https://example2.groupcos.com/api/v1',
+      api_key: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89',
+    },
+  },
+};
 
 export class DataBasesDto {
   @ApiPropertyOptional({ example: 1, description: 'ID (opcional en POST, lo genera la BD)' })
@@ -29,15 +45,28 @@ export class DataBasesDto {
   label_data_base?: string;
 
   @ApiProperty({
-    example: ['dev_db_1', 'dev_db_2'],
-    description: 'Listado de bases de datos asociadas (puede ser 1 o muchas)',
-    isArray: true,
-    type: String,
+    example: basesExample,
+    description:
+      'JSON con bases de datos y sus configuraciones de servicios. Cada clave es el nombre de la BD, y el valor contiene los servicios disponibles (ej: generate_pdf_demand_service con url y api_key).',
+    type: 'object',
+    additionalProperties: {
+      type: 'object',
+      properties: {
+        generate_pdf_demand_service: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', example: 'https://example.groupcos.com/api/v1' },
+            api_key: { type: 'string', example: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89' },
+          },
+          required: ['url', 'api_key'],
+        },
+      },
+      required: ['generate_pdf_demand_service'],
+    },
   })
-  @IsArray()
-  @IsString({ each: true })
+  @IsObject()
   @IsNotEmpty()
-  bases: string[];
+  bases: BasesConfig;
 
   @ApiProperty({
     example: 'Bases de datos para entorno dev, cartera Propias',
@@ -81,15 +110,28 @@ export class UpdateDataBasesDto {
   portfolio_type_id: number;
 
   @ApiProperty({
-    example: ['dev_db_1', 'dev_db_2'],
-    description: 'Listado de bases de datos asociadas (puede ser 1 o muchas)',
-    isArray: true,
-    type: String,
+    example: basesExample,
+    description:
+      'JSON con bases de datos y sus configuraciones de servicios. Cada clave es el nombre de la BD, y el valor contiene los servicios disponibles (ej: generate_pdf_demand_service con url y api_key).',
+    type: 'object',
+    additionalProperties: {
+      type: 'object',
+      properties: {
+        generate_pdf_demand_service: {
+          type: 'object',
+          properties: {
+            url: { type: 'string', example: 'https://example.groupcos.com/api/v1' },
+            api_key: { type: 'string', example: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89' },
+          },
+          required: ['url', 'api_key'],
+        },
+      },
+      required: ['generate_pdf_demand_service'],
+    },
   })
-  @IsArray()
-  @IsString({ each: true })
+  @IsObject()
   @IsNotEmpty()
-  bases: string[];
+  bases: BasesConfig;
 
   @ApiProperty({
     example: 'Bases de datos para entorno dev, cartera Propias',
@@ -119,5 +161,3 @@ export class UpdateDataBasesDto {
   @IsNotEmpty()
   responsible: string;
 }
-
-

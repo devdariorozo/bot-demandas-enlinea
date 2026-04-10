@@ -69,7 +69,7 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
       environment_type_name: (row.environment_type_name as string) ?? '',
       portfolio_type_id: row.db_portfolio_type_id as number,
       portfolio_type_name: (row.portfolio_type_name as string) ?? '',
-      bases: row.db_bases as string[],
+      bases: row.db_bases as DataBases['bases'],
       detail: row.db_detail as string,
       state_type_id: row.db_state_type_id as number,
       state_type_name: (row.state_type_name as string) ?? '',
@@ -115,7 +115,7 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
       environment_type_name: (raw.environment_type_name as string) ?? '',
       portfolio_type_id: raw.db_portfolio_type_id as number,
       portfolio_type_name: (raw.portfolio_type_name as string) ?? '',
-      bases: raw.db_bases as string[],
+      bases: raw.db_bases as DataBases['bases'],
       detail: raw.db_detail as string,
       state_type_id: raw.db_state_type_id as number,
       state_type_name: (raw.state_type_name as string) ?? '',
@@ -137,13 +137,13 @@ export class DataBasesRepositoryImpl implements DataBasesRepository {
     await this.repo.delete(id);
   }
 
-  /** Consultar la vista v_cities en la primera base del registro data_bases (posición 0). */
+  /** Consultar la vista v_cities en la primera base del registro data_bases (primera clave del objeto bases). */
   async fetchVCitiesFromFirstBase(idDataBases: number): Promise<VCitiesRow[]> {
     const record = await this.findById(idDataBases);
-    if (!record.bases || !Array.isArray(record.bases) || record.bases.length === 0) {
+    if (!record.bases || typeof record.bases !== 'object' || Object.keys(record.bases).length === 0) {
       throw new Error('No bases configured for this data_bases record');
     }
-    const firstBase = record.bases[0];
+    const firstBase = Object.keys(record.bases)[0];
     // Solo permitir nombres de BD alfanuméricos y guión bajo para evitar inyección
     if (!/^[a-zA-Z0-9_]+$/.test(firstBase)) {
       throw new Error('Invalid database name');

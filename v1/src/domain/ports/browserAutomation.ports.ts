@@ -51,6 +51,11 @@ export interface LugarEnvioYProcesoInput {
     contact_number: string;
     email_notifications: string;
   };
+  /**
+   * Configuración del servicio PDF para esta demanda.
+   * Se obtiene de data_bases.bases[name_data_base].generate_pdf_demand_service.
+   */
+  pdfServiceConfig: { url: string; api_key: string };
 }
 
 /** Resultado del flujo en el portal (para mensaje final en DB y logs). */

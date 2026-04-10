@@ -13,7 +13,20 @@ import { dataEmpty, dataMany, dataOne } from '@application/utils/response.utils'
 const createExampleSchema = {
   environment_type_id: 1,
   portfolio_type_id: 1,
-  bases: ['dev_db_1', 'dev_db_2', 'dev_db_3'],
+  bases: {
+    dev_db_1: {
+      generate_pdf_demand_service: {
+        url: 'https://example.groupcos.com/api/v1',
+        api_key: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89',
+      },
+    },
+    dev_db_2: {
+      generate_pdf_demand_service: {
+        url: 'https://example2.groupcos.com/api/v1',
+        api_key: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89',
+      },
+    },
+  },
   detail: 'Bases de datos para entorno dev, cartera Propias',
   state_type_id: 1,
   responsible: 'BOT demands online',
@@ -23,7 +36,14 @@ const createExampleSchema = {
 const updateExampleSchema = {
   environment_type_id: 1,
   portfolio_type_id: 1,
-  bases: ['dev_db_1', 'dev_db_2'],
+  bases: {
+    dev_db_1: {
+      generate_pdf_demand_service: {
+        url: 'https://example.groupcos.com/api/v1',
+        api_key: 'sk_74b9d1c1e949ae8e60f52b1f2a4d7c89',
+      },
+    },
+  },
   detail: 'Bases de datos para entorno dev, cartera Propias',
   state_type_id: 1,
   responsible: 'BOT demands online',
