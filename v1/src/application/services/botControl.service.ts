@@ -33,7 +33,7 @@ export interface BotStatus extends Record<string, unknown> {
   environment_type_name?: string;
   data_bases?: Array<{
     id: number;
-    bases: string[];
+    bases: import('@domain/entities/dataBases.entities').BasesConfig;
     label_data_base?: string;
   }>;
 }

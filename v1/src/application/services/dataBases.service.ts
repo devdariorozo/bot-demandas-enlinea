@@ -52,7 +52,7 @@ export class DataBasesService {
     }
 
     // Validar que bases no sea vacío
-    if (!input.bases || input.bases.length === 0) {
+    if (!input.bases || typeof input.bases !== 'object' || Object.keys(input.bases).length === 0) {
       throw new BadRequestException('At least one base must be provided');
     }
 

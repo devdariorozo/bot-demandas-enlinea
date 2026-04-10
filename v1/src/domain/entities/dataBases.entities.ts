@@ -1,12 +1,26 @@
 // Responsabilidad: la entidad de dominio, con su identidad y comportamiento.
 
+/** Configuración de un servicio dentro de una base de datos. */
+export interface DataBaseServiceConfig {
+  url: string;
+  api_key: string;
+}
+
+/** Servicios disponibles para una base de datos. */
+export interface DataBaseServices {
+  generate_pdf_demand_service: DataBaseServiceConfig;
+}
+
+/** Mapa de bases de datos con sus configuraciones de servicios. */
+export type BasesConfig = Record<string, DataBaseServices>;
+
 export class DataBases {
     id: number;
     environment_type_id: number; // FK al environment_type.id
     environment_type_name?: string; // Nombre del tipo de entorno
     portfolio_type_id: number; // FK al portfolio_type.id
     portfolio_type_name?: string; // Nombre del tipo de portfolio
-    bases: string[]; // Array bases de datos asociadas (ej: ['ejemplo1', 'ejemplo2'])
+    bases: BasesConfig; // JSON con bases de datos y sus configuraciones de servicios
     detail: string;
     state_type_id: number;   // FK al state_type.id
     state_type_name?: string; // Nombre del tipo de estado (de data_bases)

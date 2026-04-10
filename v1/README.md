@@ -50,7 +50,7 @@ src/
 | BD | Descripción |
 |----|-------------|
 | **BD configuración** (`DB_CONFIG_*`) | Propia del bot; todas las entidades TypeORM (catálogos, horarios, demandas a gestionar, etc.) |
-| **BDs de cartera** (externas, dinámicas) | Bases MySQL de terceros. El nombre viene en `data_bases.bases` (array JSON) y en `management_demands_online.name_data_base`. El bot opera sobre ellas con `DataBasesRepository.runQueryOnBase(baseName, sql, params)`. Tablas relevantes: `lawsuits`, `clients`, `phones`, `lawsuit_court_assignments`, `campaigns`. |
+| **BDs de cartera** (externas, dinámicas) | Bases MySQL de terceros. Los nombres vienen en `data_bases.bases` (JSON object) y en `management_demands_online.name_data_base`. Cada clave del objeto es el nombre de la BD; el valor contiene la configuración de servicios asociados (URL y API key del generador de PDF). El bot opera sobre ellas con `DataBasesRepository.runQueryOnBase(baseName, sql, params)`. Tablas relevantes: `lawsuits`, `clients`, `phones`, `lawsuit_court_assignments`, `campaigns`. |
 
 ---
 
@@ -275,7 +275,18 @@ Código: `browserlessPuppeteer.adapter.ts` → `fillSujetosProcesalesDemandanteJ
 
 1. **Seleccionar tipo de archivo:** espera a que `#DDlTipoArchivo` se pueble y selecciona la opción `DEMANDA` (normalizado).
 
-2. **Generar PDF:** `POST {GENERATE_PDF_DEMAND_SERVICE}/generatedemandonlinepdf` con `client_id` + `campaign_id` tomados del registro en gestión. Respuesta: campo `path_demanda_pdf` (ruta relativa en storage, ej. `cartera_propia_QA/demandas_1/demanda_5106997_abc.pdf`). Se persiste en `management_demands_online.path_law_doc`.
+2. **Generar PDF:** `POST {url}/external/lawsuits/generatedemandonlinepdf` con `client_id` + `campaign_id` tomados del registro en gestión. La URL y el API key **no provienen del `.env`**; se resuelven en tiempo de ejecución desde `data_bases.bases[management_demands_online.name_data_base].generate_pdf_demand_service`:
+   ```json
+   {
+     "miosv2_carteras_QA": {
+       "generate_pdf_demand_service": {
+         "url": "https://qa-cartera.groupcos.com/api/v1",
+         "api_key": "sk_..."
+       }
+     }
+   }
+   ```
+   Si el campo `name_data_base` de la demanda no tiene entrada en `bases`, la demanda pasa a `Novedad` con detalle descriptivo. Respuesta esperada: campo `path_demanda_pdf` (ruta relativa en storage, ej. `cartera_propia_QA/demandas_1/demanda_5106997_abc.pdf`). Se persiste en `management_demands_online.path_law_doc`.
 
 3. **Descargar PDF:** `GET {DOWNLOAD_PDF_DEMAND_SERVICE}/local/download/{encodeURIComponent(path_law_doc)}` con header `X-API-Key: {DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY}`. Se guarda en `tmp/{id}-{portfolio_type_id}-{client_id}/{basename(path_law_doc)}`. Se valida que el archivo exista y tenga tamaño ≥ 64 bytes.
 
@@ -398,10 +409,8 @@ BROWSERLESS_API_TOKEN=...
 BROWSERLESS_CONCURRENT_BROWSERS=1
 
 # PDF
-GENERATE_PDF_DEMAND_SERVICE=https://...
-GENERATE_PDF_DEMAND_SERVICE_API_KEY=...
-DOWNLOAD_PDF_DEMAND_SERVICE=https://s3backaws.mysoul.software/v1/api
-DOWNLOAD_PDF_DEMAND_SERVICE_API_KEY=sk_...
+# La URL y el API key del servicio generador de PDF se administran por base de datos
+# en el campo `bases` de la tabla `data_bases` (clave generate_pdf_demand_service).
 
 # Loop del bot (segundos)
 AUTOMATION_IDLE_SLEEP_SEC=15
@@ -467,7 +476,7 @@ Prefijo `api/v1`. Swagger: `http://localhost:{PORT_API}/docs`
 | `environmentType` | CRUD | Catálogo: dev, docker, qa, pro |
 | `stateType` | CRUD | Catálogo: Active, Inactive |
 | `portfolioType` | CRUD | Catálogo: Propias, Sudameris |
-| `dataBases` | CRUD + GET /byEnvAndPortf | BD por entorno/cartera; campo `bases` es array JSON |
+| `dataBases` | CRUD + GET /byEnvAndPortf | BD por entorno/cartera; campo `bases` es un JSON object donde cada clave es el nombre de la BD y el valor contiene `generate_pdf_demand_service` (url + api_key) |
 | `attentionSchedule` | CRUD + GET /byPortfolio | `days` array JSON en español; UNIQUE por `(portfolio_type_id, start_time, end_time)` |
 | `portfolioCityConfig` | CRUD + GET /byDataBasesAndCityViews + GET /vCitiesFetch | `vCitiesFetch` consulta la vista `v_cities` de la primera base del registro |
 | `amountType` | CRUD | Cuantías con `class_process` (array JSON de especialidades/clases) |

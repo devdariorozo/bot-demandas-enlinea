@@ -302,11 +302,15 @@ export class DemandPdfHttpAdapter implements DemandPdfPort {
     }
   }
 
-  async generateDemandOnlinePdf(clientId: number, campaignId: number): Promise<string> {
-    const base = this.configService.get<string>('GENERATE_PDF_DEMAND_SERVICE')?.replace(/\/$/, '') ?? '';
-    const apiKey = this.configService.get<string>('GENERATE_PDF_DEMAND_SERVICE_API_KEY') ?? '';
+  async generateDemandOnlinePdf(
+    clientId: number,
+    campaignId: number,
+    serviceUrl: string,
+    apiKey: string,
+  ): Promise<string> {
+    const base = serviceUrl?.replace(/\/$/, '') ?? '';
     if (!base) {
-      throw new Error('GENERATE_PDF_DEMAND_SERVICE no configurado');
+      throw new Error('generate_pdf_demand_service.url no configurado para esta base de datos');
     }
     const url = `${base}/external/lawsuits/generatedemandonlinepdf`;
     this.appLogger.structured({
