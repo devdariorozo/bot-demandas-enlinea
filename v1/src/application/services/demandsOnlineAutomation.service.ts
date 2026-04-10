@@ -314,9 +314,11 @@ export class DemandsOnlineAutomationService {
       }
 
       let portfolioTypeId: number;
+      let dbBases: import('@domain/entities/dataBases.entities').BasesConfig;
       try {
         const dbRecord = await this.dataBasesService.findById(currentDataBasesId);
         portfolioTypeId = dbRecord.portfolio_type_id;
+        dbBases = dbRecord.bases;
       } catch {
         this.appLogger.structured({
           level: 'debug',
@@ -394,6 +396,33 @@ export class DemandsOnlineAutomationService {
       },
     });
 
+    // Resolver configuración del servicio PDF según la base de datos de la demanda
+    const pdfServiceConfig = dbBases[demanda.name_data_base]?.generate_pdf_demand_service;
+    if (!pdfServiceConfig?.url) {
+      const noConfigDetail =
+        `Sin configuración de generate_pdf_demand_service para la base "${demanda.name_data_base}". ` +
+        `Verifique el campo bases en el registro data_bases correspondiente.`;
+      await this.managementDemandsOnlineRepository.update({
+        ...demanda,
+        management_status: 'Novedad',
+        detail: noConfigDetail,
+        updated_at: new Date(),
+      });
+      this.appLogger.structured({
+        level: 'warn',
+        context: DemandsOnlineAutomationService.name,
+        type: 'AUTOMATION_JOB',
+        status: 'WARN',
+        message: noConfigDetail,
+        meta: {
+          management_demands_online_id: demanda.id,
+          name_data_base: demanda.name_data_base,
+          data_bases_id: currentDataBasesId,
+        },
+      });
+      return { processed: false };
+    }
+
     try {
       const cityConfig = await this.portfolioCityConfigRepository.findById(
         demanda.portfolio_city_config_id,
@@ -461,6 +490,7 @@ export class DemandsOnlineAutomationService {
           demandante: demandanteData,
           demandado: demandadoData ?? undefined,
           apoderado: apoderadoData,
+          pdfServiceConfig,
         });
 
       const refreshedDemanda =

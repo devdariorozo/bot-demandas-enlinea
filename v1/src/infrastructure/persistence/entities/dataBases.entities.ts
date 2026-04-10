@@ -14,7 +14,7 @@ export class DataBasesEntity {
   portfolio_type_id: number;
 
   @Column('json')
-  bases: string[];
+  bases: Record<string, { generate_pdf_demand_service: { url: string; api_key: string } }>;
 
   @Column()
   detail: string;

@@ -108,7 +108,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
     });
 
     for (const dbRecord of dbList) {
-      if (!dbRecord.bases || !Array.isArray(dbRecord.bases) || dbRecord.bases.length === 0) {
+      if (!dbRecord.bases || typeof dbRecord.bases !== 'object' || Object.keys(dbRecord.bases).length === 0) {
         continue;
       }
       const configs = await this.portfolioCityConfigRepository.findByDataBases(dbRecord.id);
@@ -134,7 +134,7 @@ export class DemandsPendingSyncService implements OnModuleInit, OnModuleDestroy 
         },
       });
 
-      for (const baseName of dbRecord.bases) {
+      for (const baseName of Object.keys(dbRecord.bases)) {
         try {
           // 1) Consultar primero lawsuits pendientes (status Pendiente y sin deleted_at)
           //    y cruzarlas con lawsuit_court_assignments por lawsuit_id y city_id ∈ idCityViews.
