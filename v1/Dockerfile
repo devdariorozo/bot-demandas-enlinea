@@ -5,6 +5,7 @@ WORKDIR /usr/src/app
 COPY package*.json ./
 RUN npm ci
 
+COPY nest-cli.json ./
 COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
@@ -20,6 +21,6 @@ RUN npm ci --omit=dev
 
 COPY --from=builder /usr/src/app/dist ./dist
 
-EXPOSE 5006
+EXPOSE 16011
 
-CMD ["npm", "run", "docker"]
+CMD ["node", "dist/main"]
