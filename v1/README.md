@@ -395,6 +395,7 @@ Variables mínimas:
 ```env
 # App
 PORT_API=5006
+URL_API=http://localhost:5006
 
 # BD configuración
 DB_CONFIG_HOST=localhost
@@ -428,47 +429,127 @@ DEMANDS_PENDING_SYNC_MANUAL=false
 
 Ver `.env.example` para el listado completo.
 
-### 3. Migraciones, seeds y arranque
+### 3. Migraciones y seeds
 
 ```bash
 npm run migrations   # Crea todas las tablas
 npm run seeds        # Carga datos iniciales
-npm run dev          # Desarrollo con hot-reload (http://localhost:5006 · /docs)
 ```
+
+Para arrancar el sistema ver la sección **Ejecución** a continuación.
 
 ---
 
-## Docker
+## Ejecución
 
-Tres servicios API (dev / qa / pro) + un Redis por ambiente, todos con `network_mode: host`.
+El sistema soporta tres modos de arranque. En todos los casos el `.env` debe estar configurado antes de iniciar (ver sección **Instalación**).
 
-| Servicio | Puerto API | Puerto Redis |
-|----------|-----------|--------------|
-| dev | 5006 | 6379 |
-| qa  | 5007 | 6380 |
-| pro | 5008 | 6381 |
+---
+
+### Modo 1 — Tradicional (sin Docker)
+
+Requiere Node.js 22 LTS y MySQL accesible desde la máquina local.
 
 ```bash
-# Construir
+# Compilar TypeScript → dist/  (obligatorio antes de qa y pro)
+npm run build
+
+# Arrancar según el ambiente
+npm run dev   # Desarrollo con hot-reload (nest start --watch, no requiere build previo)
+npm run qa    # Ejecuta el build compilado apuntando a la BD de QA
+npm run pro   # Ejecuta el build compilado apuntando a la BD de PRO
+```
+
+> `npm run dev` compila en memoria con `nest start --watch`, por lo que **no requiere `npm run build` previo**. Para `qa` y `pro` el build sí es obligatorio, ya que ejecutan `node dist/main`.
+
+**Logs:** `v1/logs/YYYY-MM-DD-logs-{PROJECT_NAME}.log`
+
+---
+
+### Modo 2 — Docker ambiente dev (`docker-compose-dev.yml`)
+
+Un servicio `api` + `redis`, ambos con `network_mode: host` (comparten la red del host directamente). Toda la configuración sale del `.env`.
+
+Todos los comandos desde `v1/`:
+
+```bash
+# Build de imagen (--no-cache para rebuild completo)
+docker compose -f docker-compose-dev.yml build --no-cache
+
+# Levantar en background
+docker compose -f docker-compose-dev.yml up -d
+
+# Rebuild rápido tras cambios de código o dependencias
+docker compose -f docker-compose-dev.yml up -d --build
+
+# Ver logs en tiempo real
+docker compose -f docker-compose-dev.yml logs -f          # todos los servicios
+docker compose -f docker-compose-dev.yml logs -f api      # solo la API
+
+# Entrar al contenedor
+docker compose -f docker-compose-dev.yml exec api sh
+
+# Parar (sin eliminar contenedores)
+docker compose -f docker-compose-dev.yml stop
+
+# Bajar y eliminar contenedores
+docker compose -f docker-compose-dev.yml down
+```
+
+**Logs:** montados en `v1/logs/` del host (volumen `./logs:/usr/src/app/logs`). También visibles en tiempo real con `docker compose logs -f` gracias al override `NODE_ENV=development` que habilita la salida a consola.
+
+---
+
+### Modo 3 — Docker ambiente pro (`docker-compose.yml`)
+
+Configurado para producción: expone el puerto `PORT_API`, usa red Docker interna (`bot-demandas-enlinea`) y monta logs en el host.
+
+> **VPN activa obligatoria.** `DB_CONFIG_HOST` debe apuntar al servidor de BD correspondiente.
+
+Todos los comandos desde `v1/`:
+
+```bash
+# Build de imagen
 docker compose build --no-cache
 
-# Levantar un ambiente (ej. dev)
-docker compose up -d bot-demandas-enlinea-v1-redis-dev bot-demandas-enlinea-v1-dev
-
-# Todos
+# Levantar en background
 docker compose up -d
 
-# Bajar
+# Rebuild rápido
+docker compose up -d --build
+
+# Ver logs en tiempo real
+docker compose logs -f
+docker compose logs -f api
+
+# Entrar al contenedor
+docker compose exec api sh
+
+# Parar / bajar
+docker compose stop
 docker compose down
 ```
 
-El `docker-compose.yml` ejecuta `npm run ${ENV_API}` (→ `node dist/main`). Para QA/PRO: **VPN activa obligatoria** y `DB_CONFIG_HOST` apuntando al servidor correspondiente.
+**Logs:** montados en `v1/logs/` del host (volumen `./logs:/usr/src/app/logs`). En modo pro los logs solo van a archivo (stdout suprimido con `NODE_ENV=production`).
+
+---
+
+### Resumen comparativo
+
+| Aspecto | Tradicional | Docker dev | Docker pro |
+|---------|-------------|------------|------------|
+| Archivo compose | — | `docker-compose-dev.yml` | `docker-compose.yml` |
+| Comando arranque | `npm run build` → `npm run dev/qa/pro` | `docker compose -f docker-compose-dev.yml up -d` | `docker compose up -d` |
+| Red | Host directo | `network_mode: host` | Red Docker interna |
+| Logs en host | `v1/logs/` | `v1/logs/` + stdout (`logs -f`) | `v1/logs/` |
+| Hot-reload | Sí (`npm run dev`) | No | No |
+| VPN requerida | Solo QA/PRO | Solo QA/PRO | Sí |
 
 ---
 
 ## Endpoints
 
-Prefijo `api/v1`. Swagger: `http://localhost:{PORT_API}/docs`
+Prefijo `api/v1`. Swagger: `{URL_API}/docs` (el valor de `URL_API` del `.env` determina la URL; por defecto `http://localhost:{PORT_API}`)
 
 | Recurso | Operaciones | Notas |
 |---------|-------------|-------|

@@ -2,6 +2,7 @@
 
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
+import type { Request, Response, NextFunction } from 'express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppLogger } from './infrastructure/logging/appLogger.service';
@@ -35,14 +36,18 @@ async function bootstrap() {
   app.useLogger(appLogger);
   const logger = new Logger('Bootstrap');
 
-  const corsAllowedOrigins =
-    process.env.CORS_ALLOWED_ORIGINS?.split(',')
-      .map((origin) => origin.trim())
-      .filter((origin) => origin.length > 0) ?? [];
+  const corsRaw = process.env.CORS_ALLOWED_ORIGINS?.trim() ?? '';
+  const corsAllowAll = corsRaw === '*';
+  const corsAllowedOrigins = corsAllowAll
+    ? []
+    : corsRaw
+        .split(',')
+        .map((origin) => origin.trim())
+        .filter((origin) => origin.length > 0);
 
   app.enableCors({
     origin: (origin, callback) => {
-      if (!origin || corsAllowedOrigins.length === 0) {
+      if (!origin || corsAllowAll || corsAllowedOrigins.length === 0) {
         return callback(null, true);
       }
 
@@ -55,6 +60,28 @@ async function bootstrap() {
     credentials: true,
   });
 
+  // Handler Express-level para errores CORS (ocurren antes del pipeline de NestJS).
+  // El middleware cors llama a next(err) cuando el origen no está permitido,
+  // lo que escapa al ExceptionFilter global y produciría un 500 sin formato.
+  const expressApp = app.getHttpAdapter().getInstance() as {
+    use: (...args: unknown[]) => void;
+  };
+  expressApp.use(
+    (err: Error, _req: Request, res: Response, next: NextFunction) => {
+      if (err?.message?.includes('not allowed by CORS')) {
+        res.status(403).json({
+          status: 403,
+          type: 'warning',
+          title: 'Acceso denegado',
+          message: 'Origen no autorizado para acceder a este recurso.',
+          data: null,
+        });
+        return;
+      }
+      next(err);
+    },
+  );
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -66,11 +93,15 @@ async function bootstrap() {
   app.useGlobalFilters(new JsonParseExceptionFilter());
   app.useGlobalInterceptors(new StandardResponseInterceptor());
 
+  const port = process.env.PORT_API ?? 5006;
+  const urlApi = process.env.URL_API ?? `http://localhost:${port}`;
+
   const projectName = process.env.PROJECT_NAME ?? 'bot-demands-online';
   const swaggerTitle = `${projectName}-${versionApi}`;
 
   const config = new DocumentBuilder()
     .setTitle(swaggerTitle)
+    .addServer(urlApi)
     .setDescription(
       `Este proyecto es un bot desarrollado en Node.js que automatiza la radicación de demandas en línea en el portal oficial de la Rama Judicial de Colombia (https://procesojudicial.ramajudicial.gov.co/demandaenlinea). El bot simula el flujo que hoy realiza un usuario humano: acepta los términos y condiciones del modal inicial, diligencia los campos de los 6 bloques del formulario (selects, textos, sujetos procesales, adjuntos), interactúa con el reCAPTCHA (resolución vía Browserless) y finalmente envía la demanda, minimizando errores manuales y tiempos operativos.
 
@@ -122,11 +153,10 @@ El sistema está pensado para ser escalable por carteras. En el MVP se trabaja c
   });
   SwaggerModule.setup('docs', app, document);
 
-  const port = process.env.PORT_API ?? 5006;
   await app.listen(port);
 
-  logger.log(`Application is running on: http://localhost:${port}`);
-  logger.log(`Swagger UI: http://localhost:${port}/docs`);
+  logger.log(`Application is running on: ${urlApi}`);
+  logger.log(`Swagger UI: ${urlApi}/docs`);
 }
 
 bootstrap().catch((err) => {
