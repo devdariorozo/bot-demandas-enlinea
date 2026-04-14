@@ -85,6 +85,9 @@ DEMANDS_PENDING_SYNC_MANUAL=false
 # Solo requeridos cuando DEMANDS_PENDING_SYNC_MANUAL=true
 CLIENT_ID=53330
 LAWSUIT_ID=1601
+
+# Modo de envío en el portal: true (o sin valor) = simulación (clic "No"), false = producción real (clic "Sí" + radicado)
+DEMANDS_PENDING_SYNC_SIMULATED_PORTAL=true
 ```
 
 > **Nota:** `CLIENT_ID` y `LAWSUIT_ID` son ignorados cuando `DEMANDS_PENDING_SYNC_MANUAL=false`.
@@ -340,11 +343,15 @@ Código: `browserlessPuppeteer.adapter.ts` → `waitForJconfirmOpenConfirmarDato
 
 #### Apartado Ciclo final gestión de la demanda
 
-Una vez abierto el modal "Confirmar Datos" con los botones **Sí / No**, el bot actúa según el modo configurado:
+Una vez abierto el modal "Confirmar Datos" con los botones **Sí / No**, el bot actúa según la variable `DEMANDS_PENDING_SYNC_SIMULATED_PORTAL`:
 
-**Modo actual — envío simulado (botón "NO"):** el bot presiona "NO" en el modal (disparando `mousedown` + `mouseup` + `click` vía `page.evaluate`), espera a que el modal se cierre y retorna `demandaRegistrada: true`. Esto completa el ciclo **sin enviar realmente la demanda al portal**, permitiendo verificar que todo el flujo hasta la confirmación funcione correctamente antes de activar el envío real.
+| Valor | Modo | Comportamiento |
+|-------|------|----------------|
+| `true` | **Simulación** | Presiona "NO" — el flujo completo se ejecuta pero la demanda **no se registra** en el portal. Útil para verificar que todo funciona antes de ir a producción. |
+| `false` | **Producción real** | Presiona "SÍ" → doble confirmación → espera el modal de radicado → extrae el número de radicado → presiona "Finalizar". La demanda queda registrada oficialmente ante la Rama Judicial. |
+| *(sin valor / vacío / undefined)* | **Simulación** | Por defecto seguro: si la variable no está definida se comporta igual que `true`. |
 
-**Modo producción — envío real (botón "SÍ"):** el código para presionar "SÍ" está implementado y disponible. Al activarlo, el bot presiona "SÍ" y el portal registra la demanda ante la Rama Judicial.
+> **Regla de seguridad:** el modo producción real **solo se activa con `false` explícito**. Cualquier otro valor (incluyendo ausencia de la variable) mantiene la simulación.
 
 **Resultado exitoso (`demandaRegistrada: true`):**
 1. Actualiza `management_demands_online`: `management_status = 'Registrada'`, `lawsuit_status = 'Presentada por aplicativo'`, `detail` con descripción de la acción tomada en el modal.
