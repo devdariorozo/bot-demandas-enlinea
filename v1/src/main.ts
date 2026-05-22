@@ -2,7 +2,7 @@
 
 import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
-import type { Request, Response, NextFunction } from 'express';
+// import type { Request, Response, NextFunction } from 'express'; // Usado por el bloque CORS (deshabilitado)
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { AppLogger } from './infrastructure/logging/appLogger.service';
@@ -36,51 +36,53 @@ async function bootstrap() {
   app.useLogger(appLogger);
   const logger = new Logger('Bootstrap');
 
-  const corsRaw = process.env.CORS_ALLOWED_ORIGINS?.trim() ?? '';
-  const corsAllowAll = corsRaw === '*';
-  const corsAllowedOrigins = corsAllowAll
-    ? []
-    : corsRaw
-        .split(',')
-        .map((origin) => origin.trim())
-        .filter((origin) => origin.length > 0);
+  // --- CORS deshabilitado temporalmente. Conservar para reactivación futura. ---
+  // const corsRaw = process.env.CORS_ALLOWED_ORIGINS?.trim() ?? '';
+  // const corsAllowAll = corsRaw === '*';
+  // const corsAllowedOrigins = corsAllowAll
+  //   ? []
+  //   : corsRaw
+  //       .split(',')
+  //       .map((origin) => origin.trim())
+  //       .filter((origin) => origin.length > 0);
 
-  app.enableCors({
-    origin: (origin, callback) => {
-      if (!origin || corsAllowAll || corsAllowedOrigins.length === 0) {
-        return callback(null, true);
-      }
+  // app.enableCors({
+  //   origin: (origin, callback) => {
+  //     if (!origin || corsAllowAll || corsAllowedOrigins.length === 0) {
+  //       return callback(null, true);
+  //     }
 
-      if (corsAllowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+  //     if (corsAllowedOrigins.includes(origin)) {
+  //       return callback(null, true);
+  //     }
 
-      return callback(new Error(`Origin ${origin} not allowed by CORS`));
-    },
-    credentials: true,
-  });
+  //     return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  //   },
+  //   credentials: true,
+  // });
 
   // Handler Express-level para errores CORS (ocurren antes del pipeline de NestJS).
   // El middleware cors llama a next(err) cuando el origen no está permitido,
   // lo que escapa al ExceptionFilter global y produciría un 500 sin formato.
-  const expressApp = app.getHttpAdapter().getInstance() as {
-    use: (...args: unknown[]) => void;
-  };
-  expressApp.use(
-    (err: Error, _req: Request, res: Response, next: NextFunction) => {
-      if (err?.message?.includes('not allowed by CORS')) {
-        res.status(403).json({
-          status: 403,
-          type: 'warning',
-          title: 'Acceso denegado',
-          message: 'Origen no autorizado para acceder a este recurso.',
-          data: null,
-        });
-        return;
-      }
-      next(err);
-    },
-  );
+  // const expressApp = app.getHttpAdapter().getInstance() as {
+  //   use: (...args: unknown[]) => void;
+  // };
+  // expressApp.use(
+  //   (err: Error, _req: Request, res: Response, next: NextFunction) => {
+  //     if (err?.message?.includes('not allowed by CORS')) {
+  //       res.status(403).json({
+  //         status: 403,
+  //         type: 'warning',
+  //         title: 'Acceso denegado',
+  //         message: 'Origen no autorizado para acceder a este recurso.',
+  //         data: null,
+  //       });
+  //       return;
+  //     }
+  //     next(err);
+  //   },
+  // );
+  // --- Fin bloque CORS ---
 
   app.useGlobalPipes(
     new ValidationPipe({
