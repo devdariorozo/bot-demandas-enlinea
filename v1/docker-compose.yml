@@ -10,6 +10,8 @@ services:
       - "${PORT_API}:${PORT_API}"
     env_file:
       - .env
+    environment:
+      - TZ=America/Bogota
     command: node dist/main
     volumes:
       - ./logs:/usr/src/app/logs
