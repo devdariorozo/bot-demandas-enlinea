@@ -558,6 +558,18 @@ export class DemandsOnlineAutomationService {
             detailFinal,
             updatedDemanda.lawsuit_id,
           ]);
+
+          if (updatedDemanda.client_id) {
+            const sqlClients = `
+              UPDATE \`${baseName}\`.clients
+              SET judicial_status = ?
+              WHERE id = ?
+            `;
+            await this.dataBasesRepository.runQueryOnBase(baseName, sqlClients, [
+              'judicializado',
+              updatedDemanda.client_id,
+            ]);
+          }
         }
 
         this.appLogger.structured({
