@@ -541,6 +541,23 @@ export class DemandsOnlineAutomationService {
             updatedDemanda.user_name ?? 'BOT demands online',
             updatedDemanda.lawsuit_id,
           ]);
+
+          const sqlFilings = `
+            UPDATE \`${baseName}\`.lawsuits_filings
+            SET
+              filing_number = ?,
+              filing_date = ?,
+              updater_user = ?,
+              comments = ?
+            WHERE lawsuit_id = ?
+          `;
+          await this.dataBasesRepository.runQueryOnBase(baseName, sqlFilings, [
+            updatedDemanda.number_filed ?? '-',
+            updatedDemanda.updated_at,
+            1,
+            detailFinal,
+            updatedDemanda.lawsuit_id,
+          ]);
         }
 
         this.appLogger.structured({
